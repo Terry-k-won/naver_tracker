@@ -2439,7 +2439,15 @@ function buildDataFromTabularSheets(ss) {
   return { hospitals, tasks, quotaOverrides: {}, tagPool: [] };
 }`;
 
+const CURRENT_CACHE_VERSION = 'v20260822_02';
+const CACHE_VERSION_KEY = 'medigo_naver_tracker_cache_version';
+
 (async function bootstrap() {
+  const savedVersion = localStorage.getItem(CACHE_VERSION_KEY);
+  if (savedVersion !== CURRENT_CACHE_VERSION) {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.setItem(CACHE_VERSION_KEY, CURRENT_CACHE_VERSION);
+  }
   await showPasscodeGate();
   document.getElementById('app').innerHTML = `<div class="boot-loading">불러오는 중…</div>`;
   db = await loadInitialData();
