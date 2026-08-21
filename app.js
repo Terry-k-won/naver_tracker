@@ -410,8 +410,8 @@ let db = null;
 let state = {
   view: 'list',        // 'list' | 'detail'
   hospitalId: null,
-  year: today.getFullYear(),
-  month: today.getMonth() + 1,
+  year: 2026,
+  month: 8,
   weeklyOffset: 0,     // 0 = 이번주, -1 = 지난주, 1 = 다음주
   pwVisible: false,
   trackerExpanded: false,
@@ -2012,11 +2012,25 @@ function onAppClick(e) {
     }
     case 'open-hospital': {
       const h = getHospital(id);
-      // 클릭한 요소에 특정 날짜(data-date)가 실려있으면(마감 보드 셀, 달력 칸 등)
-      // "오늘" 기준이 아니라 그 날짜가 속한 실제 주기로 바로 이동한다.
       const dateAttr = el.dataset.date;
-      const refDate = dateAttr ? new Date(dateAttr) : today;
-      const anchor = h ? getCurrentCycleAnchor(h, refDate) : { year: today.getFullYear(), month: today.getMonth() + 1 };
+      let refDate = dateAttr ? new Date(dateAttr) : null;
+      if (!refDate && h) {
+        const hTasks = db.tasks.filter((t) => t.hospitalId === id && t.deadline);
+        if (hTasks.length > 0) {
+          const ymCounts = {};
+          hTasks.forEach(t => {
+            const ym = t.deadline.substring(0, 7);
+            ymCounts[ym] = (ymCounts[ym] || 0) + 1;
+          });
+          const sortedYm = Object.keys(ymCounts).sort((a, b) => ymCounts[b] - ymCounts[a]);
+          if (sortedYm.length > 0) {
+            const [yStr, mStr] = sortedYm[0].split('-');
+            refDate = new Date(parseInt(yStr, 10), parseInt(mStr, 10) - 1, 1);
+          }
+        }
+      }
+      if (!refDate) refDate = today;
+      const anchor = h ? getCurrentCycleAnchor(h, refDate) : { year: 2026, month: 8 };
       state.view = 'detail';
       state.hospitalId = id;
       state.year = anchor.year;
@@ -2028,7 +2042,26 @@ function onAppClick(e) {
     }
     case 'switch-hospital': {
       const h = getHospital(id);
-      const anchor = h ? getCurrentCycleAnchor(h, today) : { year: today.getFullYear(), month: today.getMonth() + 1 };
+      let refDate = new Date(state.year, state.month - 1, 1);
+      if (h) {
+        const currentCycleTasks = getTasksForCycle(h, state.year, state.month);
+        if (currentCycleTasks.length === 0) {
+          const hTasks = db.tasks.filter((t) => t.hospitalId === id && t.deadline);
+          if (hTasks.length > 0) {
+            const ymCounts = {};
+            hTasks.forEach(t => {
+              const ym = t.deadline.substring(0, 7);
+              ymCounts[ym] = (ymCounts[ym] || 0) + 1;
+            });
+            const sortedYm = Object.keys(ymCounts).sort((a, b) => ymCounts[b] - ymCounts[a]);
+            if (sortedYm.length > 0) {
+              const [yStr, mStr] = sortedYm[0].split('-');
+              refDate = new Date(parseInt(yStr, 10), parseInt(mStr, 10) - 1, 1);
+            }
+          }
+        }
+      }
+      const anchor = h ? getCurrentCycleAnchor(h, refDate) : { year: 2026, month: 8 };
       state.hospitalId = id;
       state.year = anchor.year;
       state.month = anchor.month;
