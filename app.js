@@ -6,7 +6,7 @@ const TASK_ORDER_KEY = 'medigo_naver_tracker_task_order';
 const LONG_PRESS_MS = 450;
 
 /* ==================== 클라우드 동기화 (Google Spreadsheet API) ==================== */
-const DEFAULT_GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwnqLV2-8UAGiOAxviRi-fXY6GAkPNtTXCeZupwBxCyn_DmgKYhSBl1TzOBHKEsZOp_Pw/exec';
+const DEFAULT_GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzj2b6DBcH-4fhfKXOhrxQgZ0V1qYmXXhlM3_J26EdBK3A84xnZMMMAUi6VF5_Q1W59kA/exec';
 const GOOGLE_SCRIPT_URL_KEY = 'medigo_naver_tracker_google_script_url';
 let googleScriptUrl = DEFAULT_GOOGLE_SCRIPT_URL || localStorage.getItem(GOOGLE_SCRIPT_URL_KEY) || '';
 
