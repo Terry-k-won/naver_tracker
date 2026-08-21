@@ -13,6 +13,26 @@ const SHEET_TASKS = 'Tasks';
 const SHEET_QUOTAS = 'QuotaOverrides';
 const SHEET_TAGS = 'TagPool';
 
+function formatDateVal(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    const y = val.getFullYear();
+    const m = String(val.getMonth() + 1).padStart(2, '0');
+    const d = String(val.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const str = String(val).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.substring(0, 10);
+  const parsedDate = new Date(str);
+  if (!isNaN(parsedDate.getTime())) {
+    const y = parsedDate.getFullYear();
+    const m = String(parsedDate.getMonth() + 1).padStart(2, '0');
+    const d = String(parsedDate.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return str;
+}
+
 function doGet(e) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -100,9 +120,9 @@ function updateTabularSheets(ss, db) {
       typeLabel,
       t.keyword || '',
       t.topicText || '',
-      t.deadline || '',
+      formatDateVal(t.deadline),
       t.status || '',
-      t.publishedDate || '',
+      formatDateVal(t.publishedDate),
       t.keywordVolume !== null && t.keywordVolume !== undefined ? t.keywordVolume : '',
       t.keywordDocs !== null && t.keywordDocs !== undefined ? t.keywordDocs : '',
       t.performance || ''
@@ -187,9 +207,9 @@ function buildDataFromTabularSheets(ss) {
           type,
           keyword: String(r[3]||''),
           topicText: String(r[4]||''),
-          deadline: String(r[5]||''),
+          deadline: formatDateVal(r[5]),
           status: String(r[6]||'시작 전'),
-          publishedDate: r[7] ? String(r[7]) : null,
+          publishedDate: r[7] ? formatDateVal(r[7]) : null,
           keywordVolume: r[8] !== '' ? Number(r[8]) : null,
           keywordDocs: r[9] !== '' ? Number(r[9]) : null,
           performance: String(r[10]||'')
@@ -213,23 +233,5 @@ function buildDataFromTabularSheets(ss) {
     });
   }
 
-  const tagPool = [];
-  const tagSheet = ss.getSheetByName(SHEET_TAGS);
-  if (tagSheet && tagSheet.getLastRow() > 1) {
-    const tagVals = tagSheet.getRange(2, 1, tagSheet.getLastRow() - 1, 6).getValues();
-    tagVals.forEach(r => {
-      if (r[0]) {
-        tagPool.push({
-          id: String(r[0]),
-          hospitalId: String(r[1]||''),
-          kind: String(r[2]||''),
-          keyword: String(r[3]||''),
-          volume: r[4] !== '' ? Number(r[4]) : null,
-          docs: r[5] !== '' ? Number(r[5]) : null
-        });
-      }
-    });
-  }
-
-  return { hospitals, tasks, quotaOverrides, tagPool };
+  return { hospitals, tasks, quotaOverrides, tagPool: [] };
 }

@@ -270,10 +270,27 @@ const INITIAL_TASKS = [
   { id: 't-70', hospitalId: 'h-gangnam', type: 'brandBlog', deadline: '2026-06-01', status: '보고 완료', keyword: '도농역 어깨통증', keywordVolume: 20, keywordDocs: 90, publishedDate: '2026-06-01' }
 ];
 
+function normalizeDateStr(val) {
+  if (!val) return '';
+  if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val.trim())) {
+    return val.trim().substring(0, 10);
+  }
+  const d = new Date(val);
+  if (!isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  return String(val || '');
+}
+
 function migrateTask(t) {
   if (t.status === '작성 전') t.status = '시작 전';
   if (t.status === '작성완료') t.status = '원고 준비';
   if (t.status === '발행완료') t.status = '발행';
+  if (t.deadline) t.deadline = normalizeDateStr(t.deadline);
+  if (t.publishedDate) t.publishedDate = normalizeDateStr(t.publishedDate);
   return t;
 }
 
@@ -2311,6 +2328,26 @@ const SHEET_TASKS = 'Tasks';
 const SHEET_QUOTAS = 'QuotaOverrides';
 const SHEET_TAGS = 'TagPool';
 
+function formatDateVal(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    const y = val.getFullYear();
+    const m = String(val.getMonth() + 1).padStart(2, '0');
+    const d = String(val.getDate()).padStart(2, '0');
+    return \`\${y}-\${m}-\${d}\`;
+  }
+  const str = String(val).trim();
+  if (/^\\d{4}-\\d{2}-\\d{2}/.test(str)) return str.substring(0, 10);
+  const parsedDate = new Date(str);
+  if (!isNaN(parsedDate.getTime())) {
+    const y = parsedDate.getFullYear();
+    const m = String(parsedDate.getMonth() + 1).padStart(2, '0');
+    const d = String(parsedDate.getDate()).padStart(2, '0');
+    return \`\${y}-\${m}-\${d}\`;
+  }
+  return str;
+}
+
 function doGet(e) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -2360,9 +2397,9 @@ function updateTabularSheets(ss, db) {
   const tRows = [tHeaders];
   tasks.forEach(t => {
     const typeLabel = t.type === 'brandBlog' ? '브랜드 블로그' : (t.type === 'press' ? '기자단' : (t.type === 'receipt' ? '영수증 리뷰' : t.type));
-    tRows.push([t.id||'', t.hospitalId||'', typeLabel, t.keyword||'', t.topicText||'', t.deadline||'', t.status||'', t.publishedDate||'', t.keywordVolume ?? '', t.keywordDocs ?? '', t.performance||'']);
+    tRows.push([t.id||'', t.hospitalId||'', typeLabel, t.keyword||'', t.topicText||'', formatDateVal(t.deadline), t.status||'', formatDateVal(t.publishedDate), t.keywordVolume ?? '', t.keywordDocs ?? '', t.performance||'']);
   });
-  tSheet.getRange(1, 1, tRows.length, tHeaders.length).setValues(tRows);
+  hSheet.getRange(1, 1, tRows.length, tHeaders.length).setValues(tRows);
 }
 
 function buildDataFromTabularSheets(ss) {
@@ -2393,7 +2430,7 @@ function buildDataFromTabularSheets(ss) {
         else if (rawType.includes('영수증') || rawType === 'receipt') type = 'receipt';
         tasks.push({
           id: String(r[0]), hospitalId: String(r[1]||''), type, keyword: String(r[3]||''), topicText: String(r[4]||''),
-          deadline: String(r[5]||''), status: String(r[6]||'시작 전'), publishedDate: r[7] ? String(r[7]) : null,
+          deadline: formatDateVal(r[5]), status: String(r[6]||'시작 전'), publishedDate: r[7] ? formatDateVal(r[7]) : null,
           keywordVolume: r[8] !== '' ? Number(r[8]) : null, keywordDocs: r[9] !== '' ? Number(r[9]) : null, performance: String(r[10]||'')
         });
       }
