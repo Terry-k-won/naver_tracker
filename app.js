@@ -5,13 +5,10 @@ const THEME_KEY = 'medigo_naver_tracker_theme';
 const TASK_ORDER_KEY = 'medigo_naver_tracker_task_order';
 const LONG_PRESS_MS = 450;
 
-/* ==================== 클라우드 동기화 (Supabase) ==================== */
-// 폰/컴퓨터 등 여러 기기에서 같은 데이터를 보고 편집할 수 있도록,
-// localStorage 대신(및 오프라인 백업용으로 병행) Supabase의 tracker_state 테이블
-// 한 행(id='default')에 전체 데이터를 JSON으로 저장하고 Realtime으로 변경을 구독한다.
-const SUPABASE_URL = 'https://gjzqrrnzuvvobqdqqcjn.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdqenFycm56dXZ2b2JxZHFxY2puIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY1NDUyNDAsImV4cCI6MjEwMjEyMTI0MH0.nWIgs2DEdtKGPuvcCr8rX30iOZbbfBEf8waGAdO63IY';
-const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+/* ==================== 클라우드 동기화 (Google Spreadsheet API) ==================== */
+const DEFAULT_GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzj2b6DBcH-4fhfKXOhrxQgZ0V1qYmXXhlM3_J26EdBK3A84xnZMMMAUi6VF5_Q1W59kA/exec';
+const GOOGLE_SCRIPT_URL_KEY = 'medigo_naver_tracker_google_script_url';
+let googleScriptUrl = DEFAULT_GOOGLE_SCRIPT_URL || localStorage.getItem(GOOGLE_SCRIPT_URL_KEY) || '';
 
 // 공유 비밀번호(패스코드) 게이트 - 평문 대신 SHA-256 해시로 비교한다.
 // 비밀번호를 바꾸려면: 새 비밀번호의 SHA-256 해시값으로 아래 상수만 교체하면 된다.
@@ -310,54 +307,66 @@ function loadLocalData() {
   }
 }
 
-// Supabase tracker_state 테이블의 단일 행(id='default')을 원격 저장소로 사용한다.
+// Google Apps Script Web App (Spreadsheet) API 호출
 async function fetchRemoteData() {
-  if (!supabaseClient) return null;
+  if (!googleScriptUrl) return null;
   try {
-    const { data, error } = await supabaseClient
-      .from('tracker_state')
-      .select('data, updated_at')
-      .eq('id', 'default')
-      .maybeSingle();
-    if (error) { console.error('Supabase 로드 실패:', error); return null; }
-    if (!data || !data.data || typeof data.data !== 'object' || !Array.isArray(data.data.hospitals)) return null;
-    lastSyncedUpdatedAt = data.updated_at || null;
-    return normalizeLoadedData(data.data);
+    const res = await fetch(googleScriptUrl, { method: 'GET' });
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (json.status === 'ok' && json.data && typeof json.data === 'object' && Array.isArray(json.data.hospitals)) {
+      lastSyncedUpdatedAt = json.updated_at || null;
+      return normalizeLoadedData(json.data);
+    }
+    return null;
   } catch (e) {
-    console.error('Supabase 로드 실패:', e);
+    console.error('구글 시트 로드 실패:', e);
     return null;
   }
 }
 
 async function pushRemoteState(data) {
-  if (!supabaseClient) return;
+  if (!googleScriptUrl) return;
   try {
     const nowIso = new Date().toISOString();
-    const { error } = await supabaseClient
-      .from('tracker_state')
-      .update({ data, updated_at: nowIso })
-      .eq('id', 'default');
-    if (error) { console.error('Supabase 저장 실패:', error); return; }
-    lastSyncedUpdatedAt = nowIso;
+    const res = await fetch(googleScriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(data)
+    });
+    if (res.ok) {
+      lastSyncedUpdatedAt = nowIso;
+    }
   } catch (e) {
-    console.error('Supabase 저장 실패:', e);
+    console.error('구글 시트 저장 실패:', e);
   }
 }
 
-// 앱 시작 시 1회: 로컬과 원격을 모두 읽어서 비교한 뒤,
-// 한쪽이 비어있으면 있는 쪽을 쓰고, 둘 다 있는데 내용이 다르면
-// 절대 조용히 덮어쓰지 않고 사용자에게 직접 어느 쪽을 쓸지 물어본다.
-// (예전에는 원격이 있으면 무조건 원격으로 로컬을 덮어써서 실제 작업 데이터가
-//  테스트용 샘플 데이터에 지워지는 사고가 있었음 - 다시는 이런 일이 없도록 함)
 async function loadInitialData() {
   const remote = await fetchRemoteData();
   const local = loadLocalData();
 
-  if (!remote) {
-    const base = local || { hospitals: INITIAL_HOSPITALS, quotaOverrides: {}, tasks: INITIAL_TASKS, tagPool: [] };
+  if (!remote && !local) {
+    let backupData = null;
+    try {
+      let resp = await fetch('merged_backup.json');
+      if (!resp.ok) resp = await fetch('supabase_backup.json');
+      if (resp.ok) {
+        const rawBackup = await resp.json();
+        const firstRow = Array.isArray(rawBackup) ? rawBackup[0] : rawBackup;
+        const targetData = (firstRow && firstRow.data) ? firstRow.data : firstRow;
+        if (targetData && Array.isArray(targetData.hospitals)) backupData = normalizeLoadedData(targetData);
+      }
+    } catch (err) { /* ignore */ }
+
+    const base = backupData || { hospitals: INITIAL_HOSPITALS, quotaOverrides: {}, tasks: INITIAL_TASKS, tagPool: [] };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(base));
-    pushRemoteState(base);
+    if (googleScriptUrl) pushRemoteState(base);
     return base;
+  }
+
+  if (!remote) {
+    return local || { hospitals: INITIAL_HOSPITALS, quotaOverrides: {}, tasks: INITIAL_TASKS, tagPool: [] };
   }
 
   if (!local) {
@@ -370,9 +379,9 @@ async function loadInitialData() {
   }
 
   const useRemote = confirm(
-    '이 기기에 저장된 데이터와 클라우드에 저장된 데이터가 서로 다릅니다.\n\n' +
-    '[확인] = 클라우드 데이터를 사용 (이 기기의 데이터는 클라우드 내용으로 바뀝니다)\n' +
-    '[취소] = 이 기기의 데이터를 사용 (클라우드가 이 기기 내용으로 바뀝니다)\n\n' +
+    '이 기기에 저장된 데이터와 구글 시트(클라우드)에 저장된 데이터가 서로 다릅니다.\n\n' +
+    '[확인] = 구글 시트 데이터를 사용 (이 기기의 데이터는 구글 시트 내용으로 바뀝니다)\n' +
+    '[취소] = 이 기기의 데이터를 사용 (구글 시트에 이 기기 내용이 반영됩니다)\n\n' +
     '어느 쪽이 최신/정확한 데이터인지 확실하지 않다면 먼저 [취소]를 누르고 "내보내기"로 양쪽을 백업해두는 걸 권장합니다.'
   );
   if (useRemote) {
@@ -392,20 +401,19 @@ function saveData() {
   saveDebounceTimer = setTimeout(() => pushRemoteState(db), 600);
 }
 
-function subscribeRemoteChanges() {
-  if (!supabaseClient) return;
-  supabaseClient
-    .channel('tracker_state_changes')
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tracker_state', filter: 'id=eq.default' }, (payload) => {
-      const incoming = payload.new;
-      if (!incoming || incoming.updated_at === lastSyncedUpdatedAt) return; // 내가 방금 보낸 변경의 메아리는 무시
-      if (!incoming.data || !Array.isArray(incoming.data.hospitals)) return;
-      lastSyncedUpdatedAt = incoming.updated_at;
-      db = normalizeLoadedData(incoming.data);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+function startRemoteSyncPolling() {
+  setInterval(async () => {
+    if (!googleScriptUrl) return;
+    const remote = await fetchRemoteData();
+    if (!remote) return;
+    const localStr = JSON.stringify(db);
+    const remoteStr = JSON.stringify(remote);
+    if (localStr !== remoteStr) {
+      db = remote;
+      localStorage.setItem(STORAGE_KEY, remoteStr);
       render();
-    })
-    .subscribe();
+    }
+  }, 10000);
 }
 
 let db = null;
@@ -715,6 +723,9 @@ function renderHeader() {
   <div class="app-header">
     <div class="app-title" data-action="go-list">네이버 마케팅 작업 트래커</div>
     <div class="header-actions">
+      <button class="ghost-btn ${googleScriptUrl ? 'is-connected' : ''}" data-action="open-google-sheet-config" title="구글 시트 연동 설정">
+        ☁️ ${googleScriptUrl ? '구글 시트 연동됨' : '구글 시트 연동'}
+      </button>
       <button class="ghost-btn" data-action="export-data" title="현재 데이터를 JSON 백업 파일로 저장">내보내기</button>
       <button class="ghost-btn" data-action="import-data" title="백업 파일에서 데이터 복원">가져오기</button>
       <button class="ghost-btn danger-text-btn" data-action="clear-all-data" title="모든 데이터 초기화">초기화</button>
@@ -1076,6 +1087,8 @@ function renderTaskRow(task) {
     ? `<span class="receipt-keyword-disabled">미사용</span>`
     : `<input type="text" class="cell-input" data-field="keyword" placeholder="키워드 입력" value="${esc(task.keyword || '')}">`;
 
+  const topicCell = `<input type="text" class="cell-input topic-input" data-field="topicText" placeholder="글감(주제/텍스트) 입력" value="${esc(task.topicText || '')}">`;
+
   let volumeCell = `<span class="cell-dash">-</span>`;
   let docsCell = `<span class="cell-dash">-</span>`;
   let compCell = `<span class="comp-badge is-na">미사용</span>`;
@@ -1098,15 +1111,16 @@ function renderTaskRow(task) {
   return `
   <tr data-task-id="${task.id}">
     <td class="delete-task-cell"><button class="icon-btn danger-btn" data-action="delete-task" title="삭제" aria-label="작업 삭제">✕</button></td>
-    <td><select class="cell-input type-select type-${task.type}" data-field="type">${typeOptions}</select></td>
-    <td>${keywordCell}</td>
-    <td><input type="date" class="cell-input" data-field="deadline" value="${esc(task.deadline || '')}"></td>
-    <td><select class="cell-input status-select" data-status="${esc(task.status)}" data-field="status">${statusOptions}</select></td>
-    <td>${publishedCell}</td>
-    <td>${volumeCell}</td>
-    <td>${docsCell}</td>
-    <td>${compCell}</td>
-    <td><input type="text" class="cell-input performance-input" data-field="performance" placeholder="예: 블로그탭 1위" value="${esc(task.performance || '')}"></td>
+    <td class="cell-type"><select class="cell-input type-select type-${task.type}" data-field="type">${typeOptions}</select></td>
+    <td class="cell-keyword">${keywordCell}</td>
+    <td class="cell-topic">${topicCell}</td>
+    <td class="cell-deadline"><input type="date" class="cell-input" data-field="deadline" value="${esc(task.deadline || '')}"></td>
+    <td class="cell-status"><select class="cell-input status-select" data-status="${esc(task.status)}" data-field="status">${statusOptions}</select></td>
+    <td class="cell-published">${publishedCell}</td>
+    <td class="cell-volume">${volumeCell}</td>
+    <td class="cell-docs">${docsCell}</td>
+    <td class="cell-comp">${compCell}</td>
+    <td class="cell-performance"><input type="text" class="cell-input performance-input" data-field="performance" placeholder="예: 블로그탭 1위" value="${esc(task.performance || '')}"></td>
   </tr>`;
 }
 
@@ -1119,8 +1133,6 @@ function renderTrackerSection(hospital, year, month) {
   const tasks = getTasksForCycle(hospital, year, month)
     .map((task, index) => ({ task, index, savedPosition: savedPositions.get(task.id) }))
     .sort((a, b) => {
-      // 정렬 기준(마감일 또는 발행 종류)이 우선이고, 같은 그룹 안에서는
-      // 수동으로 끌어서 정한 순서 > 마감일/생성 순으로 세부 정렬한다.
       if (sortMode === 'type') {
         const aType = TRACKER_TYPE_ORDER[a.task.type] ?? 99;
         const bType = TRACKER_TYPE_ORDER[b.task.type] ?? 99;
@@ -1169,6 +1181,7 @@ function renderTrackerSection(hospital, year, month) {
             <th class="delete-task-head"><span class="sr-only">삭제</span></th>
             <th>발행 종류</th>
             <th>키워드</th>
+            <th class="topic-head">글감 (텍스트)</th>
             <th>마감일</th>
             <th>진행상황</th>
             <th>발행일</th>
@@ -1964,6 +1977,9 @@ function onAppClick(e) {
       state.trackerExpanded = false;
       render();
       break;
+    case 'open-google-sheet-config':
+      openGoogleSheetConfigModal();
+      break;
     case 'export-data':
       exportDataFile();
       break;
@@ -2203,10 +2219,161 @@ document.addEventListener('keydown', (e) => {
   render();
 });
 
+function openGoogleSheetConfigModal() {
+  openModal(`
+    <div class="google-config-card">
+      <div class="google-config-header">
+        <h3>☁️ 구글 스프레드시트 연동 설정</h3>
+        <p class="helper-text">트래커 데이터를 내 구글 스프레드시트와 실시간 온라인 동기화합니다.</p>
+      </div>
+      <form id="googleConfigForm" style="margin-top:16px;">
+        <label style="display:block; margin-bottom:12px;">
+          <strong style="display:block; margin-bottom:6px;">구글 Apps Script 웹 앱 URL</strong>
+          <input type="url" id="googleScriptUrlInput" class="cell-input" placeholder="https://script.google.com/macros/s/.../exec" value="${esc(googleScriptUrl)}" style="border:1px solid var(--border); padding:10px; width:100%; font-size:13px;" autofocus>
+        </label>
+        <div class="form-actions" style="display:flex; gap:8px; justify-content:flex-end;">
+          <button type="button" class="ghost-btn" data-action="close-modal">닫기</button>
+          <button type="submit" class="primary-btn">설정 저장하기</button>
+        </div>
+      </form>
+      <hr style="margin:16px 0; border:0; border-top:1px solid var(--gridline);">
+      <div class="google-guide-box" style="font-size:13px; line-height:1.6;">
+        <h4 style="margin-bottom:8px; font-size:14px; font-weight:700;">📋 구글 시트 연동 가이드</h4>
+        <ol class="google-guide-steps" style="padding-left:20px; margin-bottom:12px; color:var(--text-muted);">
+          <li style="margin-bottom:4px;">새 구글 스프레드시트를 생성하고 상단 메뉴 <strong>[확장 프로그램] → [Apps Script]</strong>를 클릭합니다.</li>
+          <li style="margin-bottom:4px;">아래 <strong>[Apps Script 코드 전체 복사]</strong> 버튼을 눌러 코드를 복사한 뒤, 에디터에 붙여넣기 합니다.</li>
+          <li style="margin-bottom:4px;">우측 상단 <strong>[배포] → [새 배포] → 유형 [웹 앱]</strong> 선택 후:
+            <ul style="padding-left:16px; margin-top:2px;">
+              <li>다음 사용자로서 실행: <strong>나 (Me)</strong></li>
+              <li>액세스 권한: <strong>모든 사용자 (Anyone)</strong></li>
+            </ul>
+          </li>
+          <li>생성된 웹 앱 URL(<code>https://script.google.com/macros/s/.../exec</code>)을 위 입력란에 붙여넣고 저장하세요.</li>
+        </ol>
+        <button type="button" class="ghost-btn" id="copyAppsScriptCodeBtn" style="width:100%; font-weight:600;">📋 Apps Script 코드 전체 복사</button>
+      </div>
+    </div>
+  `);
+
+  const form = document.getElementById('googleConfigForm');
+  if (form) {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const newUrl = document.getElementById('googleScriptUrlInput').value.trim();
+      googleScriptUrl = newUrl;
+      localStorage.setItem(GOOGLE_SCRIPT_URL_KEY, newUrl);
+      closeModal();
+      if (newUrl) {
+        pushRemoteState(db);
+        alert('구글 시트 연동 URL이 저장되었습니다! 실시간 동기화가 활성화되었습니다.');
+      } else {
+        alert('구글 시트 연동 URL이 해제되었습니다.');
+      }
+      render();
+    });
+  }
+
+  const copyBtn = document.getElementById('copyAppsScriptCodeBtn');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      copyToClipboard(googleAppsScriptSourceCode);
+      alert('Apps Script 코드가 클립보드에 복사되었습니다!\n구글 시트 Apps Script 에디터에 붙여넣으세요.');
+    });
+  }
+}
+
+const googleAppsScriptSourceCode = `/** @OnlyCurrentDoc */
+
+const SHEET_STATE = 'TrackerState';
+const SHEET_HOSPITALS = 'Hospitals';
+const SHEET_TASKS = 'Tasks';
+const SHEET_QUOTAS = 'QuotaOverrides';
+const SHEET_TAGS = 'TagPool';
+
+function doGet(e) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let stateSheet = ss.getSheetByName(SHEET_STATE);
+    if (!stateSheet) stateSheet = ss.insertSheet(SHEET_STATE);
+    const lastRow = stateSheet.getLastRow();
+    let jsonStr = '';
+    if (lastRow > 0) {
+      const values = stateSheet.getRange(1, 1, lastRow, 1).getValues();
+      jsonStr = values.map(r => r[0] || '').join('');
+    }
+    const updatedAt = stateSheet.getRange('B1').getValue() || new Date().toISOString();
+    let data = null;
+    if (jsonStr && jsonStr !== '{}') {
+      try { data = JSON.parse(jsonStr); } catch (err) {}
+    }
+    return ContentService.createTextOutput(JSON.stringify({ status: 'ok', data: data, updated_at: updatedAt }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function doPost(e) {
+  try {
+    const contents = e.postData.contents;
+    if (!contents) throw new Error('empty payload');
+    const parsed = JSON.parse(contents);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let stateSheet = ss.getSheetByName(SHEET_STATE);
+    if (!stateSheet) stateSheet = ss.insertSheet(SHEET_STATE);
+    const nowIso = new Date().toISOString();
+    const jsonStr = JSON.stringify(parsed);
+    stateSheet.clearContents();
+    const CHUNK_SIZE = 30000;
+    const chunks = [];
+    for (let i = 0; i < jsonStr.length; i += CHUNK_SIZE) {
+      chunks.push([jsonStr.substring(i, i + CHUNK_SIZE)]);
+    }
+    if (chunks.length > 0) {
+      stateSheet.getRange(1, 1, chunks.length, 1).setValues(chunks);
+    }
+    stateSheet.getRange(1, 2).setValue(nowIso);
+    updateTabularSheets(ss, parsed);
+    return ContentService.createTextOutput(JSON.stringify({ status: 'ok', updated_at: nowIso }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function updateTabularSheets(ss, db) {
+  if (!db || typeof db !== 'object') return;
+  const hospitals = Array.isArray(db.hospitals) ? db.hospitals : [];
+  let hSheet = ss.getSheetByName(SHEET_HOSPITALS);
+  if (!hSheet) hSheet = ss.insertSheet(SHEET_HOSPITALS);
+  hSheet.clearContents();
+  const hHeaders = ['ID', '병원명', '브랜드블로그 목표', '기자단 목표', '영수증리뷰 목표', '주기 시작일', '네이버 ID', '네이버 비밀번호', '블로그 URL', '지도 URL', '일시정지 여부'];
+  const hRows = [hHeaders];
+  hospitals.forEach(h => {
+    const q = h.defaultQuota || {};
+    hRows.push([h.id||'', h.name||'', q.brandBlog||0, q.press||0, q.receipt||0, h.cycleStartDay||1, h.naverId||'', h.naverPassword||'', h.naverBlogUrl||'', h.naverMapUrl||'', h.autoAssignPaused ? '일시정지' : '정상']);
+  });
+  hSheet.getRange(1, 1, hRows.length, hHeaders.length).setValues(hRows);
+
+  const tasks = Array.isArray(db.tasks) ? db.tasks : [];
+  let tSheet = ss.getSheetByName(SHEET_TASKS);
+  if (!tSheet) tSheet = ss.insertSheet(SHEET_TASKS);
+  tSheet.clearContents();
+  const tHeaders = ['ID', '병원ID', '발행 종류', '키워드', '글감(텍스트)', '마감일', '진행상황', '발행일', '검색량', '발행량', '성과'];
+  const tRows = [tHeaders];
+  tasks.forEach(t => {
+    const typeLabel = t.type === 'brandBlog' ? '브랜드 블로그' : (t.type === 'press' ? '기자단' : (t.type === 'receipt' ? '영수증 리뷰' : t.type));
+    tRows.push([t.id||'', t.hospitalId||'', typeLabel, t.keyword||'', t.topicText||'', t.deadline||'', t.status||'', t.publishedDate||'', t.keywordVolume ?? '', t.keywordDocs ?? '', t.performance||'']);
+  });
+  tSheet.getRange(1, 1, tRows.length, tHeaders.length).setValues(tRows);
+}`;
+
 (async function bootstrap() {
   await showPasscodeGate();
   document.getElementById('app').innerHTML = `<div class="boot-loading">불러오는 중…</div>`;
   db = await loadInitialData();
   render();
-  subscribeRemoteChanges();
+  startRemoteSyncPolling();
 })();

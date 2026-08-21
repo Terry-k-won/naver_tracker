@@ -1940,3 +1940,113 @@ html[data-theme="dark"] .status-select[data-status="보고"] {
   .form-row-2 { grid-template-columns: 1fr; }
   .detail-head { flex-direction: column; align-items: stretch; }
 }
+
+/* ==================== Google Sheets Connection & Topic Text Styles ==================== */
+
+.ghost-btn.is-connected {
+  color: var(--series-1);
+  border-color: color-mix(in srgb, var(--series-1) 30%, transparent);
+  background: color-mix(in srgb, var(--series-1) 8%, transparent);
+  font-weight: 700;
+}
+
+input.topic-input {
+  min-width: 160px;
+  background: color-mix(in srgb, var(--surface-page) 60%, transparent);
+}
+input.topic-input:focus {
+  background: var(--surface-page);
+}
+
+.topic-head {
+  min-width: 160px;
+}
+
+.google-guide-box {
+  background: var(--surface-page);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+/* ==================== Mobile Multi-Line Table Responsiveness (< 768px) ==================== */
+
+@media (max-width: 768px) {
+  table.tracker-table {
+    min-width: 100% !important;
+  }
+  
+  .tracker-table thead {
+    display: none;
+  }
+  
+  .tracker-table tbody tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--gridline);
+    background: var(--surface-card);
+    margin-bottom: 8px;
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  }
+  
+  .tracker-table td {
+    padding: 0;
+    border-bottom: none !important;
+  }
+
+  .delete-task-cell {
+    order: 1;
+    width: auto;
+  }
+
+  .cell-type {
+    order: 2;
+  }
+
+  .cell-keyword {
+    order: 3;
+    flex: 1 1 120px;
+  }
+
+  .cell-status {
+    order: 4;
+    margin-left: auto;
+  }
+
+  .cell-topic {
+    order: 5;
+    flex: 1 0 100%;
+    margin-top: 2px;
+  }
+
+  .cell-topic input {
+    background: var(--surface-page);
+    border: 1px solid var(--border);
+    width: 100%;
+  }
+
+  .cell-deadline {
+    order: 6;
+    flex: 0 0 auto;
+  }
+
+  .cell-published {
+    order: 7;
+    flex: 0 0 auto;
+  }
+
+  .cell-volume, .cell-docs, .cell-comp {
+    order: 8;
+    font-size: 11px;
+  }
+
+  .cell-performance {
+    order: 9;
+    flex: 1 1 120px;
+  }
+}
+
