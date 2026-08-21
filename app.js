@@ -346,7 +346,10 @@ async function loadInitialData() {
   const remote = await fetchRemoteData();
   const local = loadLocalData();
 
-  if (!remote && !local) {
+  const isRemoteValid = remote && Array.isArray(remote.hospitals) && remote.hospitals.length >= 7;
+  const isLocalValid = local && Array.isArray(local.hospitals) && local.hospitals.length >= 7;
+
+  if (!isRemoteValid && !isLocalValid) {
     let backupData = null;
     try {
       let resp = await fetch('merged_backup.json');
@@ -365,31 +368,17 @@ async function loadInitialData() {
     return base;
   }
 
-  if (!remote) {
-    return local || { hospitals: INITIAL_HOSPITALS, quotaOverrides: {}, tasks: INITIAL_TASKS, tagPool: [] };
-  }
-
-  if (!local) {
+  if (isRemoteValid) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
     return remote;
   }
 
-  if (JSON.stringify(local) === JSON.stringify(remote)) {
-    return remote;
+  if (isLocalValid) {
+    if (googleScriptUrl) pushRemoteState(local);
+    return local;
   }
 
-  const useRemote = confirm(
-    '이 기기에 저장된 데이터와 구글 시트(클라우드)에 저장된 데이터가 서로 다릅니다.\n\n' +
-    '[확인] = 구글 시트 데이터를 사용 (이 기기의 데이터는 구글 시트 내용으로 바뀝니다)\n' +
-    '[취소] = 이 기기의 데이터를 사용 (구글 시트에 이 기기 내용이 반영됩니다)\n\n' +
-    '어느 쪽이 최신/정확한 데이터인지 확실하지 않다면 먼저 [취소]를 누르고 "내보내기"로 양쪽을 백업해두는 걸 권장합니다.'
-  );
-  if (useRemote) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
-    return remote;
-  }
-  pushRemoteState(local);
-  return local;
+  return remote || local;
 }
 
 let lastSyncedUpdatedAt = null;
@@ -2284,7 +2273,6 @@ function openGoogleSheetConfigModal() {
 
 const googleAppsScriptSourceCode = `/** @OnlyCurrentDoc */
 
-const SHEET_STATE = 'TrackerState';
 const SHEET_HOSPITALS = 'Hospitals';
 const SHEET_TASKS = 'Tasks';
 const SHEET_QUOTAS = 'QuotaOverrides';
@@ -2293,20 +2281,8 @@ const SHEET_TAGS = 'TagPool';
 function doGet(e) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let stateSheet = ss.getSheetByName(SHEET_STATE);
-    if (!stateSheet) stateSheet = ss.insertSheet(SHEET_STATE);
-    const lastRow = stateSheet.getLastRow();
-    let jsonStr = '';
-    if (lastRow > 0) {
-      const values = stateSheet.getRange(1, 1, lastRow, 1).getValues();
-      jsonStr = values.map(r => r[0] || '').join('');
-    }
-    const updatedAt = stateSheet.getRange('B1').getValue() || new Date().toISOString();
-    let data = null;
-    if (jsonStr && jsonStr !== '{}') {
-      try { data = JSON.parse(jsonStr); } catch (err) {}
-    }
-    return ContentService.createTextOutput(JSON.stringify({ status: 'ok', data: data, updated_at: updatedAt }))
+    const data = buildDataFromTabularSheets(ss);
+    return ContentService.createTextOutput(JSON.stringify({ status: 'ok', data: data, updated_at: new Date().toISOString() }))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() }))
@@ -2320,22 +2296,8 @@ function doPost(e) {
     if (!contents) throw new Error('empty payload');
     const parsed = JSON.parse(contents);
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let stateSheet = ss.getSheetByName(SHEET_STATE);
-    if (!stateSheet) stateSheet = ss.insertSheet(SHEET_STATE);
-    const nowIso = new Date().toISOString();
-    const jsonStr = JSON.stringify(parsed);
-    stateSheet.clearContents();
-    const CHUNK_SIZE = 30000;
-    const chunks = [];
-    for (let i = 0; i < jsonStr.length; i += CHUNK_SIZE) {
-      chunks.push([jsonStr.substring(i, i + CHUNK_SIZE)]);
-    }
-    if (chunks.length > 0) {
-      stateSheet.getRange(1, 1, chunks.length, 1).setValues(chunks);
-    }
-    stateSheet.getRange(1, 2).setValue(nowIso);
     updateTabularSheets(ss, parsed);
-    return ContentService.createTextOutput(JSON.stringify({ status: 'ok', updated_at: nowIso }))
+    return ContentService.createTextOutput(JSON.stringify({ status: 'ok', updated_at: new Date().toISOString() }))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() }))
@@ -2368,6 +2330,43 @@ function updateTabularSheets(ss, db) {
     tRows.push([t.id||'', t.hospitalId||'', typeLabel, t.keyword||'', t.topicText||'', t.deadline||'', t.status||'', t.publishedDate||'', t.keywordVolume ?? '', t.keywordDocs ?? '', t.performance||'']);
   });
   tSheet.getRange(1, 1, tRows.length, tHeaders.length).setValues(tRows);
+}
+
+function buildDataFromTabularSheets(ss) {
+  const hospitals = [];
+  const hSheet = ss.getSheetByName(SHEET_HOSPITALS);
+  if (hSheet && hSheet.getLastRow() > 1) {
+    const hVals = hSheet.getRange(2, 1, hSheet.getLastRow() - 1, 11).getValues();
+    hVals.forEach(r => {
+      if (r[0]) {
+        hospitals.push({
+          id: String(r[0]), name: String(r[1]),
+          defaultQuota: { brandBlog: Number(r[2])||0, press: Number(r[3])||0, receipt: Number(r[4])||0 },
+          cycleStartDay: Number(r[5])||1, naverId: String(r[6]||''), naverPassword: String(r[7]||''),
+          naverBlogUrl: String(r[8]||''), naverMapUrl: String(r[9]||''), autoAssignPaused: String(r[10]) === '일시정지'
+        });
+      }
+    });
+  }
+  const tasks = [];
+  const tSheet = ss.getSheetByName(SHEET_TASKS);
+  if (tSheet && tSheet.getLastRow() > 1) {
+    const tVals = tSheet.getRange(2, 1, tSheet.getLastRow() - 1, 11).getValues();
+    tVals.forEach(r => {
+      if (r[0]) {
+        let rawType = String(r[2]||'');
+        let type = 'brandBlog';
+        if (rawType.includes('기자단') || rawType === 'press') type = 'press';
+        else if (rawType.includes('영수증') || rawType === 'receipt') type = 'receipt';
+        tasks.push({
+          id: String(r[0]), hospitalId: String(r[1]||''), type, keyword: String(r[3]||''), topicText: String(r[4]||''),
+          deadline: String(r[5]||''), status: String(r[6]||'시작 전'), publishedDate: r[7] ? String(r[7]) : null,
+          keywordVolume: r[8] !== '' ? Number(r[8]) : null, keywordDocs: r[9] !== '' ? Number(r[9]) : null, performance: String(r[10]||'')
+        });
+      }
+    });
+  }
+  return { hospitals, tasks, quotaOverrides: {}, tagPool: [] };
 }`;
 
 (async function bootstrap() {

@@ -2,9 +2,12 @@
 
 /**
  * MEDI GO ROUND - 네이버 마케팅 트래커 (Google Apps Script API)
+ * 
+ * [배포방법]
+ * 1. 이 코드를 Apps Script 에디터에 전체 복사-붙여넣기 합니다.
+ * 2. 우측 상단 [배포] -> [배포 관리] 클릭 -> ✏️ 연필(편집) 아이콘 클릭 -> 버전을 [새 버전]으로 선택 -> [배포] 클릭!
  */
 
-const SHEET_STATE = 'TrackerState';
 const SHEET_HOSPITALS = 'Hospitals';
 const SHEET_TASKS = 'Tasks';
 const SHEET_QUOTAS = 'QuotaOverrides';
@@ -13,39 +16,12 @@ const SHEET_TAGS = 'TagPool';
 function doGet(e) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let stateSheet = ss.getSheetByName(SHEET_STATE);
-    
-    if (!stateSheet) {
-      stateSheet = ss.insertSheet(SHEET_STATE);
-    }
-    
-    const lastRow = stateSheet.getLastRow();
-    let jsonStr = '';
-    if (lastRow > 0) {
-      const values = stateSheet.getRange(1, 1, lastRow, 1).getValues();
-      jsonStr = values.map(r => r[0] || '').join('');
-    }
-    
-    const updatedAt = stateSheet.getRange('B1').getValue() || new Date().toISOString();
-    
-    let data = null;
-    if (jsonStr && jsonStr !== '{}') {
-      try {
-        data = JSON.parse(jsonStr);
-      } catch (err) {
-        data = null;
-      }
-    }
-    
-    // Fallback: If TrackerState json is empty, build from tabular sheets
-    if (!data || !Array.isArray(data.hospitals) || data.hospitals.length === 0) {
-      data = buildDataFromTabularSheets(ss);
-    }
+    const data = buildDataFromTabularSheets(ss);
     
     const output = {
       status: 'ok',
       data: data,
-      updated_at: updatedAt
+      updated_at: new Date().toISOString()
     };
     
     return ContentService.createTextOutput(JSON.stringify(output))
@@ -66,31 +42,11 @@ function doPost(e) {
     const parsed = JSON.parse(contents);
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     
-    let stateSheet = ss.getSheetByName(SHEET_STATE);
-    if (!stateSheet) {
-      stateSheet = ss.insertSheet(SHEET_STATE);
-    }
-    
-    const nowIso = new Date().toISOString();
-    const jsonStr = JSON.stringify(parsed);
-    
-    // Chunk jsonStr into 30,000 character cells so single cell 50,000 limit is never hit
-    stateSheet.clearContents();
-    const CHUNK_SIZE = 30000;
-    const chunks = [];
-    for (let i = 0; i < jsonStr.length; i += CHUNK_SIZE) {
-      chunks.push([jsonStr.substring(i, i + CHUNK_SIZE)]);
-    }
-    if (chunks.length > 0) {
-      stateSheet.getRange(1, 1, chunks.length, 1).setValues(chunks);
-    }
-    stateSheet.getRange(1, 2).setValue(nowIso);
-    
     updateTabularSheets(ss, parsed);
     
     const output = {
       status: 'ok',
-      updated_at: nowIso
+      updated_at: new Date().toISOString()
     };
     
     return ContentService.createTextOutput(JSON.stringify(output))
@@ -242,5 +198,38 @@ function buildDataFromTabularSheets(ss) {
     });
   }
 
-  return { hospitals, tasks, quotaOverrides: {}, tagPool: [] };
+  const quotaOverrides = {};
+  const qSheet = ss.getSheetByName(SHEET_QUOTAS);
+  if (qSheet && qSheet.getLastRow() > 1) {
+    const qVals = qSheet.getRange(2, 1, qSheet.getLastRow() - 1, 4).getValues();
+    qVals.forEach(r => {
+      if (r[0]) {
+        quotaOverrides[String(r[0])] = {
+          brandBlog: Number(r[1])||0,
+          press: Number(r[2])||0,
+          receipt: Number(r[3])||0
+        };
+      }
+    });
+  }
+
+  const tagPool = [];
+  const tagSheet = ss.getSheetByName(SHEET_TAGS);
+  if (tagSheet && tagSheet.getLastRow() > 1) {
+    const tagVals = tagSheet.getRange(2, 1, tagSheet.getLastRow() - 1, 6).getValues();
+    tagVals.forEach(r => {
+      if (r[0]) {
+        tagPool.push({
+          id: String(r[0]),
+          hospitalId: String(r[1]||''),
+          kind: String(r[2]||''),
+          keyword: String(r[3]||''),
+          volume: r[4] !== '' ? Number(r[4]) : null,
+          docs: r[5] !== '' ? Number(r[5]) : null
+        });
+      }
+    });
+  }
+
+  return { hospitals, tasks, quotaOverrides, tagPool };
 }
