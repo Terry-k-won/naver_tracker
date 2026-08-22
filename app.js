@@ -1234,20 +1234,14 @@ function renderTrackerSection(hospital, year, month) {
 }
 
 function renderKeywordItem(task) {
-  const meta = TYPE_META[task.type];
-  const vol = task.keywordVolume;
-  const docs = task.keywordDocs;
-  const gap = task.keywordGap;
+  const meta = TYPE_META[task.type] || TYPE_META.brandBlog;
+  const vol = task.keywordVolume ?? '-';
+  const docs = task.keywordDocs ?? '-';
   return `
-  <div class="keyword-item">
-    <div class="keyword-item-head">
-      <span class="mini-dot" style="background:${meta.color}"></span>
-      <span class="keyword-item-text">${esc(task.keyword)}</span>
-    </div>
-    <div class="keyword-item-stats">
-      <span>검색량 <strong>${vol === null || vol === undefined ? '-' : vol}</strong></span>
-      <span>발행량 <strong>${docs === null || docs === undefined ? '-' : docs}</strong></span>
-    </div>
+  <div class="keyword-item-chip" title="${esc(meta.label)}: ${esc(task.keyword)} (검색량 ${vol}, 발행량 ${docs})">
+    <span class="mini-dot" style="background:${meta.color}"></span>
+    <span class="keyword-item-name">${esc(task.keyword)}</span>
+    <span class="keyword-item-mini-stats">${vol}/${docs}</span>
   </div>`;
 }
 
@@ -2470,7 +2464,7 @@ function buildDataFromTabularSheets(ss) {
   return { hospitals, tasks, quotaOverrides: {}, tagPool: [] };
 }`;
 
-const CURRENT_CACHE_VERSION = 'v20260822_03';
+const CURRENT_CACHE_VERSION = 'v20260822_04';
 const CACHE_VERSION_KEY = 'medigo_naver_tracker_cache_version';
 
 (async function bootstrap() {

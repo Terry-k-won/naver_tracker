@@ -1,3 +1,13 @@
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+#app, .app-container {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
 :root {
   color-scheme: light;
   --surface-page: #f7f7f5;
@@ -2071,12 +2081,22 @@ input.topic-input:focus {
     display: inline;
   }
 
-  /* Req 6: Calendar Section (Detail View) Fixed 7 Equal Columns */
-  .calendar-scroll {
+  /* Req 1: Calendar Section Internal Box Overflow Scrolling */
+  .calendar-section, .home-calendar-section, .monday-board-section {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+
+  .calendar-scroll, .home-calendar-scroll, .monday-board-scroll {
+    width: 100%;
+    max-width: 100%;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-    margin: 0 -4px;
-    padding: 0 4px;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
   }
 
   .calendar-grid {
@@ -2086,41 +2106,41 @@ input.topic-input:focus {
   }
 
   .calendar-cell {
-    min-height: 60px;
-    padding: 4px 2px;
+    min-height: 54px;
+    padding: 3px 2px;
     box-sizing: border-box;
   }
 
   .calendar-daynum {
-    font-size: 11px;
+    font-size: 10.5px;
   }
 
   .chip {
-    font-size: 9.5px;
-    padding: 2px 4px;
+    font-size: 9px;
+    padding: 1px 3px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 100%;
   }
 
-  /* Req 7: Tracker Section Header & Mobile Card Table */
+  /* Req 7 & Req 2: Tracker Section Header & 5-Layer Super Compact Task Cards */
   .tracker-section-head {
     flex-direction: column;
     align-items: stretch;
-    gap: 10px;
-    padding: 12px;
+    gap: 8px;
+    padding: 10px;
   }
 
   .tracker-expand-title {
-    font-size: 15px;
+    font-size: 14.5px;
     white-space: nowrap;
   }
 
   .tracker-head-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 5px;
     align-items: center;
     width: 100%;
   }
@@ -2128,20 +2148,21 @@ input.topic-input:focus {
   .tracker-head-actions select,
   .tracker-head-actions button {
     flex: 1 1 auto;
-    font-size: 12px;
-    padding: 7px 10px;
+    font-size: 11.5px;
+    padding: 5px 8px;
+    height: 30px;
     text-align: center;
     justify-content: center;
   }
 
-  /* Mobile Task Cards */
+  /* 5-Layer Ultra-Compact Mobile Task Cards */
   .mobile-cell-label {
     display: inline-block;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     color: var(--text-muted);
-    min-width: 42px;
-    margin-right: 4px;
+    min-width: 32px;
+    margin-right: 3px;
     flex-shrink: 0;
   }
 
@@ -2157,21 +2178,21 @@ input.topic-input:focus {
   .tracker-table tbody {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 6px;
     width: 100%;
-    padding: 6px 0;
+    padding: 4px 0;
   }
   
-  .tracker-table tbody tr {
+  .tracker-table tbody tr[data-task-id] {
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
     position: relative;
-    gap: 8px;
-    padding: 12px;
+    gap: 3px 6px;
+    padding: 7px 9px;
     border: 1px solid var(--border);
     background: var(--surface-card);
-    border-radius: 12px;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   }
   
   .tracker-table td {
@@ -2179,58 +2200,162 @@ input.topic-input:focus {
     border-bottom: none !important;
     display: flex;
     align-items: center;
-    width: 100%;
+    box-sizing: border-box;
   }
 
   .delete-task-cell {
     position: absolute;
-    top: 10px;
-    right: 10px;
+    top: 5px;
+    right: 6px;
     width: auto !important;
     z-index: 2;
   }
 
   .delete-task-cell button {
-    width: 28px;
-    height: 28px;
-    font-size: 13px;
+    width: 24px;
+    height: 24px;
+    font-size: 12px;
+    padding: 0;
+    border-radius: 6px;
   }
 
+  /* 1층: 발행종류 & 진행상황 (Row 1) */
   .cell-type {
-    width: calc(100% - 36px);
-    margin-bottom: 2px;
+    order: 1;
+    flex: 0 0 auto;
   }
 
-  .cell-type select {
-    font-weight: 800;
-    padding: 6px 10px;
-    font-size: 13px;
-    border-radius: 8px;
+  .cell-status {
+    order: 1;
+    flex: 0 0 auto;
+    margin-left: 2px;
   }
 
+  .cell-type select,
   .cell-status select {
+    font-size: 11.5px;
     font-weight: 700;
-    padding: 6px 10px;
-    font-size: 12.5px;
-    border-radius: 8px;
+    padding: 2px 6px;
+    height: 26px;
+    border-radius: 6px;
+  }
+
+  /* 2층: 키워드 & 글감 (Row 2) */
+  .cell-keyword {
+    order: 2;
+    flex: 1 1 120px;
+    width: auto;
+  }
+
+  .cell-topic {
+    order: 2;
+    flex: 1 1 140px;
+    width: auto;
   }
 
   .cell-keyword input,
-  .cell-topic input,
-  .cell-performance input {
-    flex: 1;
+  .cell-topic input {
+    font-size: 11.5px;
+    padding: 2px 6px;
+    height: 26px;
+    border-radius: 6px;
     width: 100%;
+  }
+
+  /* 3층: 마감일 & 발행일 (Row 3) */
+  .cell-deadline {
+    order: 3;
+    flex: 1 1 45%;
+  }
+
+  .cell-published {
+    order: 3;
+    flex: 1 1 45%;
   }
 
   .cell-deadline input,
   .cell-published input {
-    flex: 1;
+    font-size: 11px;
+    padding: 2px 4px;
+    height: 26px;
+    border-radius: 6px;
+    width: 100%;
+  }
+
+  /* 4층: 검색량 & 발행량 & 경쟁도 (Row 4) */
+  .cell-volume {
+    order: 4;
+    flex: 1 1 30%;
+  }
+
+  .cell-docs {
+    order: 4;
+    flex: 1 1 30%;
+  }
+
+  .cell-comp {
+    order: 4;
+    flex: 1 1 30%;
   }
 
   .cell-volume input,
   .cell-docs input {
-    flex: 1;
-    max-width: 120px;
+    font-size: 11px;
+    padding: 2px 4px;
+    height: 26px;
+    border-radius: 6px;
+    width: 100%;
+  }
+
+  /* 5층: 성과 (Row 5) */
+  .cell-performance {
+    order: 5;
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .cell-performance input {
+    font-size: 11.5px;
+    padding: 2px 6px;
+    height: 26px;
+    border-radius: 6px;
+    width: 100%;
+  }
+
+  /* Req 3: Compact Recent Keyword Chips */
+  .keyword-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+  }
+
+  .keyword-item-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--surface-page);
+    border: 1px solid var(--gridline);
+    border-radius: 999px;
+    padding: 3px 8px;
+    font-size: 11px;
+    max-width: 100%;
+    white-space: nowrap;
+  }
+
+  .keyword-item-name {
+    font-weight: 700;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .keyword-item-mini-stats {
+    font-size: 9.5px;
+    color: var(--text-muted);
+    font-weight: 600;
+    background: color-mix(in srgb, var(--text-muted) 10%, transparent);
+    padding: 1px 4px;
+    border-radius: 4px;
   }
 }
 
