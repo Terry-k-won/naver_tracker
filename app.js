@@ -433,6 +433,7 @@ let state = {
   pwVisible: false,
   trackerExpanded: false,
   trackerSortMode: 'deadline', // 'deadline' | 'type'
+  homeHospitalFilter: 'all',  // 'all' | hospitalId
 };
 
 function getMondaysInMonth(year, month) {
@@ -590,15 +591,40 @@ function toMondayStr(dateStr) {
   return fmtDateStr(monday);
 }
 
+function renderHomeHospitalFilter() {
+  const options = db.hospitals.map((h) => `
+    <button class="filter-pill ${state.homeHospitalFilter === h.id ? 'active' : ''}" data-action="filter-home-hospital" data-id="${h.id}">${esc(h.name)}</button>
+  `).join('');
+
+  return `
+  <div class="home-filter-bar">
+    <div class="home-filter-head">
+      <div class="home-filter-title">🏥 표시 병원 필터링</div>
+      <div class="home-filter-sub">필터를 선택하면 달력과 마감 보드에 선택한 병원만 표시되어 모바일 화면이 훨씬 깔끔해집니다.</div>
+    </div>
+    <div class="home-filter-pills">
+      <button class="filter-pill ${state.homeHospitalFilter === 'all' ? 'active' : ''}" data-action="filter-home-hospital" data-id="all">전체 병원 보기 (${db.hospitals.length})</button>
+      ${options}
+    </div>
+  </div>`;
+}
+
+function getActiveHomeHospitals() {
+  if (state.homeHospitalFilter && state.homeHospitalFilter !== 'all') {
+    const filtered = db.hospitals.filter((h) => h.id === state.homeHospitalFilter);
+    if (filtered.length > 0) return filtered;
+  }
+  return db.hospitals;
+}
+
 function renderMondayBoard() {
   const year = state.year;
   const month = state.month;
 
-  // 보드 컬럼은 선택한 달(year, month)의 월 단위 월요일들로 표시
   const mondays = getMondaysInMonth(year, month);
   const ymPrefix = monthKey(year, month);
+  const activeHospitals = getActiveHomeHospitals();
 
-  // 현재 뷰 달력 월에 속한 작업들 (마감일 또는 발행일 기준 해당 월 속함)
   const monthMondayTasks = db.tasks.filter((task) => {
     const targetDate = task.deadline || task.publishedDate;
     return targetDate && targetDate.startsWith(ymPrefix);
@@ -725,22 +751,22 @@ function getHospitalTags(hospitalId, kind) {
 function renderHeader() {
   const nextThemeLabel = currentTheme === 'dark' ? '라이트모드' : '다크모드';
   const themeIcon = currentTheme === 'dark' ? '☀' : '☾';
+  const isDetail = state.view === 'detail';
   return `
   <div class="app-header">
-    <div class="app-title" data-action="go-list">네이버 마케팅 작업 트래커</div>
+    <div class="app-title-group">
+      <div class="app-title" data-action="go-list">네이버 마케팅 작업 트래커</div>
+    </div>
     <div class="header-actions">
-      <button class="ghost-btn ${googleScriptUrl ? 'is-connected' : ''}" data-action="open-google-sheet-config" title="구글 시트 연동 설정">
-        ☁️ ${googleScriptUrl ? '구글 시트 연동됨' : '구글 시트 연동'}
-      </button>
+      ${isDetail ? `<button class="primary-btn home-nav-btn" data-action="go-list" title="홈(목록)으로 돌아가기">🏠 홈으로</button>` : ''}
       <button class="ghost-btn" data-action="export-data" title="현재 데이터를 JSON 백업 파일로 저장">내보내기</button>
       <button class="ghost-btn" data-action="import-data" title="백업 파일에서 데이터 복원">가져오기</button>
-      <button class="ghost-btn danger-text-btn" data-action="clear-all-data" title="모든 데이터 초기화">초기화</button>
       <button class="ghost-btn theme-toggle" data-action="toggle-theme" title="${nextThemeLabel}로 전환" aria-label="${nextThemeLabel}로 전환">
-        <span aria-hidden="true">${themeIcon}</span> ${nextThemeLabel}
+        <span aria-hidden="true">${themeIcon}</span> <span class="theme-label-text">${nextThemeLabel}</span>
       </button>
     </div>
   </div>
-  ${state.view === 'detail' ? renderTabStrip() : ''}
+  ${isDetail ? renderTabStrip() : ''}
   `;
 }
 
@@ -750,6 +776,7 @@ function renderTabStrip() {
   `).join('');
   return `
   <div class="tab-strip">
+    <button class="tab-pill home-tab-pill" data-action="go-list" title="홈(목록)으로 돌아가기">🏠 홈 목록</button>
     ${pills}
     <button class="tab-pill add-pill" data-action="add-hospital">+ 새 병원</button>
   </div>`;
@@ -1118,15 +1145,15 @@ function renderTaskRow(task) {
   <tr data-task-id="${task.id}">
     <td class="delete-task-cell"><button class="icon-btn danger-btn" data-action="delete-task" title="삭제" aria-label="작업 삭제">✕</button></td>
     <td class="cell-type"><select class="cell-input type-select type-${task.type}" data-field="type">${typeOptions}</select></td>
-    <td class="cell-keyword">${keywordCell}</td>
-    <td class="cell-topic">${topicCell}</td>
-    <td class="cell-deadline"><input type="date" class="cell-input" data-field="deadline" value="${esc(task.deadline || '')}"></td>
     <td class="cell-status"><select class="cell-input status-select" data-status="${esc(task.status)}" data-field="status">${statusOptions}</select></td>
-    <td class="cell-published">${publishedCell}</td>
-    <td class="cell-volume">${volumeCell}</td>
-    <td class="cell-docs">${docsCell}</td>
-    <td class="cell-comp">${compCell}</td>
-    <td class="cell-performance"><input type="text" class="cell-input performance-input" data-field="performance" placeholder="예: 블로그탭 1위" value="${esc(task.performance || '')}"></td>
+    <td class="cell-keyword"><span class="mobile-cell-label">키워드</span>${keywordCell}</td>
+    <td class="cell-topic"><span class="mobile-cell-label">글감</span>${topicCell}</td>
+    <td class="cell-deadline"><span class="mobile-cell-label">마감일</span><input type="date" class="cell-input" data-field="deadline" value="${esc(task.deadline || '')}"></td>
+    <td class="cell-published"><span class="mobile-cell-label">발행일</span>${publishedCell}</td>
+    <td class="cell-volume"><span class="mobile-cell-label">검색량</span>${volumeCell}</td>
+    <td class="cell-docs"><span class="mobile-cell-label">발행량</span>${docsCell}</td>
+    <td class="cell-comp"><span class="mobile-cell-label">경쟁도</span>${compCell}</td>
+    <td class="cell-performance"><span class="mobile-cell-label">성과</span><input type="text" class="cell-input performance-input" data-field="performance" placeholder="예: 블로그탭 1위" value="${esc(task.performance || '')}"></td>
   </tr>`;
 }
 
@@ -1983,6 +2010,10 @@ function onAppClick(e) {
       state.trackerExpanded = false;
       render();
       break;
+    case 'filter-home-hospital':
+      state.homeHospitalFilter = id || 'all';
+      render();
+      break;
     case 'open-google-sheet-config':
       openGoogleSheetConfigModal();
       break;
@@ -2439,7 +2470,7 @@ function buildDataFromTabularSheets(ss) {
   return { hospitals, tasks, quotaOverrides: {}, tagPool: [] };
 }`;
 
-const CURRENT_CACHE_VERSION = 'v20260822_02';
+const CURRENT_CACHE_VERSION = 'v20260822_03';
 const CACHE_VERSION_KEY = 'medigo_naver_tracker_cache_version';
 
 (async function bootstrap() {
