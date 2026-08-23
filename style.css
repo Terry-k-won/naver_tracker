@@ -1972,6 +1972,39 @@ input.topic-input:focus {
   min-width: 160px;
 }
 
+.url-cell-box {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+input.url-input {
+  min-width: 130px;
+  flex: 1;
+}
+
+.url-open-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--series-1) 12%, transparent);
+  color: var(--series-1);
+  font-size: 12px;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.url-open-btn:hover {
+  background: var(--series-1);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
 .google-guide-box {
   background: var(--surface-page);
   border: 1px solid var(--border);
@@ -2282,19 +2315,34 @@ input.topic-input:focus {
     width: 100%;
   }
 
-  /* 4층: 검색량 & 발행량 & 경쟁도 (Row 4) */
-  .cell-volume {
+  /* 4층: 발행 URL (기자단, 브랜드 블로그 전용) */
+  .cell-published-url {
     order: 4;
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .cell-published-url input {
+    font-size: 11.5px;
+    padding: 2px 6px;
+    height: 26px;
+    border-radius: 6px;
+    width: 100%;
+  }
+
+  /* 5층: 검색량 & 발행량 & 경쟁도 (Row 5) */
+  .cell-volume {
+    order: 5;
     flex: 1 1 30%;
   }
 
   .cell-docs {
-    order: 4;
+    order: 5;
     flex: 1 1 30%;
   }
 
   .cell-comp {
-    order: 4;
+    order: 5;
     flex: 1 1 30%;
   }
 
@@ -2307,9 +2355,9 @@ input.topic-input:focus {
     width: 100%;
   }
 
-  /* 5층: 성과 (Row 5) */
+  /* 6층: 성과 (Row 6) */
   .cell-performance {
-    order: 5;
+    order: 6;
     flex: 1 1 100%;
     width: 100%;
   }

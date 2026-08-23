@@ -1139,6 +1139,13 @@ function renderTaskRow(task) {
     ? `<span class="receipt-keyword-disabled">미사용</span>`
     : `<input type="text" class="cell-input" data-field="keyword" placeholder="키워드 입력" value="${esc(task.keyword || '')}">`;
 
+  const urlCell = isReceipt
+    ? `<span class="receipt-keyword-disabled">미사용</span>`
+    : `<div class="url-cell-box">
+         <input type="url" class="cell-input url-input" data-field="publishedUrl" placeholder="https://..." value="${esc(task.publishedUrl || '')}">
+         ${task.publishedUrl && task.publishedUrl.trim() ? `<a href="${esc(task.publishedUrl.trim())}" target="_blank" rel="noopener noreferrer" class="url-open-btn" title="블로그 링크 열기">🔗</a>` : ''}
+       </div>`;
+
   const topicCell = `<input type="text" class="cell-input topic-input" data-field="topicText" placeholder="글감(주제/텍스트) 입력" value="${esc(task.topicText || '')}">`;
 
   let volumeCell = `<span class="cell-dash">-</span>`;
@@ -1169,6 +1176,7 @@ function renderTaskRow(task) {
     <td class="cell-deadline"><span class="mobile-cell-label">마감일</span><input type="date" class="cell-input" data-field="deadline" value="${esc(task.deadline || '')}"></td>
     <td class="cell-status"><select class="cell-input status-select" data-status="${esc(task.status)}" data-field="status">${statusOptions}</select></td>
     <td class="cell-published"><span class="mobile-cell-label">발행일</span>${publishedCell}</td>
+    <td class="cell-published-url"><span class="mobile-cell-label">발행 URL</span>${urlCell}</td>
     <td class="cell-volume"><span class="mobile-cell-label">검색량</span>${volumeCell}</td>
     <td class="cell-docs"><span class="mobile-cell-label">발행량</span>${docsCell}</td>
     <td class="cell-comp"><span class="mobile-cell-label">경쟁도</span>${compCell}</td>
@@ -1237,6 +1245,7 @@ function renderTrackerSection(hospital, year, month) {
             <th>마감일</th>
             <th>진행상황</th>
             <th>발행일</th>
+            <th>발행 URL</th>
             <th>검색량</th>
             <th>발행량</th>
             <th>경쟁도</th>
@@ -2483,7 +2492,7 @@ function buildDataFromTabularSheets(ss) {
   return { hospitals, tasks, quotaOverrides: {}, tagPool: [] };
 }`;
 
-const CURRENT_CACHE_VERSION = 'v20260823_02';
+const CURRENT_CACHE_VERSION = 'v20260823_03';
 const CACHE_VERSION_KEY = 'medigo_naver_tracker_cache_version';
 
 (async function bootstrap() {

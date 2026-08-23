@@ -110,7 +110,7 @@ function updateTabularSheets(ss, db) {
   let tSheet = ss.getSheetByName(SHEET_TASKS);
   if (!tSheet) tSheet = ss.insertSheet(SHEET_TASKS);
   tSheet.clearContents();
-  const tHeaders = ['ID', '병원ID', '발행 종류', '키워드', '글감(텍스트)', '마감일', '진행상황', '발행일', '검색량', '발행량', '성과'];
+  const tHeaders = ['ID', '병원ID', '발행 종류', '키워드', '글감(텍스트)', '마감일', '진행상황', '발행일', '발행 URL', '검색량', '발행량', '성과'];
   const tRows = [tHeaders];
   tasks.forEach(t => {
     const typeLabel = t.type === 'brandBlog' ? '브랜드 블로그' : (t.type === 'press' ? '기자단' : (t.type === 'receipt' ? '영수증 리뷰' : t.type));
@@ -123,6 +123,7 @@ function updateTabularSheets(ss, db) {
       formatDateVal(t.deadline),
       t.status || '',
       formatDateVal(t.publishedDate),
+      t.publishedUrl || '',
       t.keywordVolume !== null && t.keywordVolume !== undefined ? t.keywordVolume : '',
       t.keywordDocs !== null && t.keywordDocs !== undefined ? t.keywordDocs : '',
       t.performance || ''
@@ -193,7 +194,7 @@ function buildDataFromTabularSheets(ss) {
   const tasks = [];
   const tSheet = ss.getSheetByName(SHEET_TASKS);
   if (tSheet && tSheet.getLastRow() > 1) {
-    const tVals = tSheet.getRange(2, 1, tSheet.getLastRow() - 1, 11).getValues();
+    const tVals = tSheet.getRange(2, 1, tSheet.getLastRow() - 1, 12).getValues();
     tVals.forEach(r => {
       if (r[0]) {
         let rawType = String(r[2]||'');
@@ -210,9 +211,10 @@ function buildDataFromTabularSheets(ss) {
           deadline: formatDateVal(r[5]),
           status: String(r[6]||'시작 전'),
           publishedDate: r[7] ? formatDateVal(r[7]) : null,
-          keywordVolume: r[8] !== '' ? Number(r[8]) : null,
-          keywordDocs: r[9] !== '' ? Number(r[9]) : null,
-          performance: String(r[10]||'')
+          publishedUrl: String(r[8]||''),
+          keywordVolume: r[9] !== '' ? Number(r[9]) : null,
+          keywordDocs: r[10] !== '' ? Number(r[10]) : null,
+          performance: String(r[11]||'')
         });
       }
     });
