@@ -1164,10 +1164,10 @@ function renderTaskRow(task) {
   <tr data-task-id="${task.id}">
     <td class="delete-task-cell"><button class="icon-btn danger-btn" data-action="delete-task" title="삭제" aria-label="작업 삭제">✕</button></td>
     <td class="cell-type"><select class="cell-input type-select type-${task.type}" data-field="type">${typeOptions}</select></td>
-    <td class="cell-status"><select class="cell-input status-select" data-status="${esc(task.status)}" data-field="status">${statusOptions}</select></td>
     <td class="cell-keyword"><span class="mobile-cell-label">키워드</span>${keywordCell}</td>
     <td class="cell-topic"><span class="mobile-cell-label">글감</span>${topicCell}</td>
     <td class="cell-deadline"><span class="mobile-cell-label">마감일</span><input type="date" class="cell-input" data-field="deadline" value="${esc(task.deadline || '')}"></td>
+    <td class="cell-status"><select class="cell-input status-select" data-status="${esc(task.status)}" data-field="status">${statusOptions}</select></td>
     <td class="cell-published"><span class="mobile-cell-label">발행일</span>${publishedCell}</td>
     <td class="cell-volume"><span class="mobile-cell-label">검색량</span>${volumeCell}</td>
     <td class="cell-docs"><span class="mobile-cell-label">발행량</span>${docsCell}</td>
@@ -2483,7 +2483,7 @@ function buildDataFromTabularSheets(ss) {
   return { hospitals, tasks, quotaOverrides: {}, tagPool: [] };
 }`;
 
-const CURRENT_CACHE_VERSION = 'v20260823_01';
+const CURRENT_CACHE_VERSION = 'v20260823_02';
 const CACHE_VERSION_KEY = 'medigo_naver_tracker_cache_version';
 
 (async function bootstrap() {
