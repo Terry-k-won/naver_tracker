@@ -342,8 +342,13 @@ async function fetchRemoteData() {
   }
 }
 
+let isPushingRemote = false;
+let lastPushTimestamp = 0;
+
 async function pushRemoteState(data) {
   if (!googleScriptUrl) return;
+  isPushingRemote = true;
+  lastPushTimestamp = Date.now();
   try {
     const nowIso = new Date().toISOString();
     const res = await fetch(googleScriptUrl, {
@@ -353,9 +358,12 @@ async function pushRemoteState(data) {
     });
     if (res.ok) {
       lastSyncedUpdatedAt = nowIso;
+      lastPushTimestamp = Date.now();
     }
   } catch (e) {
     console.error('구글 시트 저장 실패:', e);
+  } finally {
+    isPushingRemote = false;
   }
 }
 
@@ -410,8 +418,19 @@ function saveData() {
 function startRemoteSyncPolling() {
   setInterval(async () => {
     if (!googleScriptUrl) return;
+
+    // 로컬 수정 내용이 전송 중이거나, 저장이 대기 중이거나, 구글 시트에 막 동기화된 지 8초 이내인 경우 덮어쓰기 방지
+    if (isPushingRemote || saveDebounceTimer || (Date.now() - lastPushTimestamp < 8000)) {
+      return;
+    }
+
     const remote = await fetchRemoteData();
     if (!remote) return;
+
+    if (isPushingRemote || saveDebounceTimer || (Date.now() - lastPushTimestamp < 8000)) {
+      return;
+    }
+
     const localStr = JSON.stringify(db);
     const remoteStr = JSON.stringify(remote);
     if (localStr !== remoteStr) {
@@ -2464,7 +2483,7 @@ function buildDataFromTabularSheets(ss) {
   return { hospitals, tasks, quotaOverrides: {}, tagPool: [] };
 }`;
 
-const CURRENT_CACHE_VERSION = 'v20260822_04';
+const CURRENT_CACHE_VERSION = 'v20260823_01';
 const CACHE_VERSION_KEY = 'medigo_naver_tracker_cache_version';
 
 (async function bootstrap() {
