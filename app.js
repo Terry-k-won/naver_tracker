@@ -2492,7 +2492,7 @@ function buildDataFromTabularSheets(ss) {
   return { hospitals, tasks, quotaOverrides: {}, tagPool: [] };
 }`;
 
-const CURRENT_CACHE_VERSION = 'v20260823_03';
+const CURRENT_CACHE_VERSION = 'v20260823_04';
 const CACHE_VERSION_KEY = 'medigo_naver_tracker_cache_version';
 
 (async function bootstrap() {
