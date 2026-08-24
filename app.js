@@ -1434,10 +1434,51 @@ function render() {
     state.view = 'list';
     state.hospitalId = null;
   }
+
+  const activeEl = document.activeElement;
+  let focusedTaskId = null;
+  let focusedField = null;
+  let selectionStart = null;
+  let selectionEnd = null;
+
+  const tableScroll = document.querySelector('.table-scroll');
+  const savedTableScrollLeft = tableScroll ? tableScroll.scrollLeft : 0;
+  const savedTableScrollTop = tableScroll ? tableScroll.scrollTop : 0;
+
+  if (activeEl && activeEl.closest) {
+    const tr = activeEl.closest('tr[data-task-id]');
+    if (tr && activeEl.dataset && activeEl.dataset.field) {
+      focusedTaskId = tr.dataset.taskId;
+      focusedField = activeEl.dataset.field;
+      if (typeof activeEl.selectionStart === 'number') {
+        selectionStart = activeEl.selectionStart;
+        selectionEnd = activeEl.selectionEnd;
+      }
+    }
+  }
+
   const app = document.getElementById('app');
   app.innerHTML = renderHeader() + (state.view === 'list' ? renderListView() : renderDetailView());
   document.body.classList.toggle('tracker-expanded', !!state.trackerExpanded);
   attachListeners();
+
+  const newTableScroll = document.querySelector('.table-scroll');
+  if (newTableScroll) {
+    newTableScroll.scrollLeft = savedTableScrollLeft;
+    newTableScroll.scrollTop = savedTableScrollTop;
+  }
+
+  if (focusedTaskId && focusedField) {
+    const targetInput = document.querySelector(`tr[data-task-id="${focusedTaskId}"] [data-field="${focusedField}"]`);
+    if (targetInput) {
+      targetInput.focus();
+      if (typeof selectionStart === 'number' && targetInput.setSelectionRange) {
+        try {
+          targetInput.setSelectionRange(selectionStart, selectionEnd);
+        } catch (e) {}
+      }
+    }
+  }
 }
 
 /* ==================== 모달 ==================== */
@@ -2088,58 +2129,23 @@ function onAppClick(e) {
     case 'open-hospital': {
       const h = getHospital(id);
       const dateAttr = el.dataset.date;
-      let refDate = dateAttr ? new Date(dateAttr) : null;
-      if (!refDate && h) {
-        const hTasks = db.tasks.filter((t) => t.hospitalId === id && t.deadline);
-        if (hTasks.length > 0) {
-          const ymCounts = {};
-          hTasks.forEach(t => {
-            const ym = t.deadline.substring(0, 7);
-            ymCounts[ym] = (ymCounts[ym] || 0) + 1;
-          });
-          const sortedYm = Object.keys(ymCounts).sort((a, b) => ymCounts[b] - ymCounts[a]);
-          if (sortedYm.length > 0) {
-            const [yStr, mStr] = sortedYm[0].split('-');
-            refDate = new Date(parseInt(yStr, 10), parseInt(mStr, 10) - 1, 1);
-          }
-        }
+      let targetYear = today.getFullYear();
+      let targetMonth = today.getMonth() + 1;
+      if (dateAttr && /^\d{4}-\d{2}/.test(dateAttr)) {
+        targetYear = parseInt(dateAttr.substring(0, 4), 10);
+        targetMonth = parseInt(dateAttr.substring(5, 7), 10);
       }
-      if (!refDate) refDate = today;
-      const anchor = h ? getCurrentCycleAnchor(h, refDate) : { year: 2026, month: 8 };
       state.view = 'detail';
       state.hospitalId = id;
-      state.year = anchor.year;
-      state.month = anchor.month;
+      state.year = targetYear;
+      state.month = targetMonth;
       state.pwVisible = false;
       state.trackerExpanded = false;
       render();
       break;
     }
     case 'switch-hospital': {
-      const h = getHospital(id);
-      let refDate = new Date(state.year, state.month - 1, 1);
-      if (h) {
-        const currentCycleTasks = getTasksForCycle(h, state.year, state.month);
-        if (currentCycleTasks.length === 0) {
-          const hTasks = db.tasks.filter((t) => t.hospitalId === id && t.deadline);
-          if (hTasks.length > 0) {
-            const ymCounts = {};
-            hTasks.forEach(t => {
-              const ym = t.deadline.substring(0, 7);
-              ymCounts[ym] = (ymCounts[ym] || 0) + 1;
-            });
-            const sortedYm = Object.keys(ymCounts).sort((a, b) => ymCounts[b] - ymCounts[a]);
-            if (sortedYm.length > 0) {
-              const [yStr, mStr] = sortedYm[0].split('-');
-              refDate = new Date(parseInt(yStr, 10), parseInt(mStr, 10) - 1, 1);
-            }
-          }
-        }
-      }
-      const anchor = h ? getCurrentCycleAnchor(h, refDate) : { year: 2026, month: 8 };
       state.hospitalId = id;
-      state.year = anchor.year;
-      state.month = anchor.month;
       state.pwVisible = false;
       state.trackerExpanded = false;
       render();
@@ -2497,7 +2503,7 @@ function buildDataFromTabularSheets(ss) {
   return { hospitals, tasks, quotaOverrides: {}, tagPool: [] };
 }`;
 
-const CURRENT_CACHE_VERSION = 'v20260824_01';
+const CURRENT_CACHE_VERSION = 'v20260824_02';
 const CACHE_VERSION_KEY = 'medigo_naver_tracker_cache_version';
 
 (async function bootstrap() {
