@@ -1139,12 +1139,10 @@ function renderTaskRow(task) {
     ? `<span class="receipt-keyword-disabled">미사용</span>`
     : `<input type="text" class="cell-input" data-field="keyword" placeholder="키워드 입력" value="${esc(task.keyword || '')}">`;
 
-  const urlCell = isReceipt
-    ? `<span class="receipt-keyword-disabled">미사용</span>`
-    : `<div class="url-cell-box">
-         <input type="url" class="cell-input url-input" data-field="publishedUrl" placeholder="https://..." value="${esc(task.publishedUrl || '')}">
-         ${task.publishedUrl && task.publishedUrl.trim() ? `<a href="${esc(task.publishedUrl.trim())}" target="_blank" rel="noopener noreferrer" class="url-open-btn" title="블로그 링크 열기">🔗</a>` : ''}
-       </div>`;
+  const urlCell = `<div class="url-cell-box">
+     <input type="url" class="cell-input url-input" data-field="publishedUrl" placeholder="https://..." value="${esc(task.publishedUrl || '')}">
+     ${task.publishedUrl && task.publishedUrl.trim() ? `<a href="${esc(task.publishedUrl.trim())}" target="_blank" rel="noopener noreferrer" class="url-open-btn" title="링크 열기">🔗</a>` : ''}
+   </div>`;
 
   const topicCell = `<input type="text" class="cell-input topic-input" data-field="topicText" placeholder="글감(주제/텍스트) 입력" value="${esc(task.topicText || '')}">`;
 
@@ -1263,13 +1261,20 @@ function renderTrackerSection(hospital, year, month) {
 
 function renderKeywordItem(task) {
   const meta = TYPE_META[task.type] || TYPE_META.brandBlog;
-  const vol = task.keywordVolume ?? '-';
-  const docs = task.keywordDocs ?? '-';
+  const vol = task.keywordVolume !== null && task.keywordVolume !== undefined ? Number(task.keywordVolume).toLocaleString() : '-';
+  const docs = task.keywordDocs !== null && task.keywordDocs !== undefined ? Number(task.keywordDocs).toLocaleString() : '-';
   return `
-  <div class="keyword-item-chip" title="${esc(meta.label)}: ${esc(task.keyword)} (검색량 ${vol}, 발행량 ${docs})">
-    <span class="mini-dot" style="background:${meta.color}"></span>
-    <span class="keyword-item-name">${esc(task.keyword)}</span>
-    <span class="keyword-item-mini-stats">${vol}/${docs}</span>
+  <div class="keyword-item">
+    <div class="keyword-item-head">
+      <span class="mini-dot" style="background:${meta.color}"></span>
+      <span class="keyword-item-text" title="${esc(task.keyword)}">${esc(task.keyword)}</span>
+      <span class="keyword-item-type-badge" style="color:${meta.color}">${esc(meta.short)}</span>
+    </div>
+    <div class="keyword-item-stats">
+      <span>검색량 <strong>${vol}</strong></span>
+      <span class="stat-sep">•</span>
+      <span>발행량 <strong>${docs}</strong></span>
+    </div>
   </div>`;
 }
 
@@ -1302,7 +1307,7 @@ function renderKeywordPoolSection(hospital) {
 
 function renderKeywordBanner(hospital) {
   const items = db.tasks
-    .filter((t) => t.hospitalId === hospital.id && t.type !== 'receipt' && t.keyword && t.keyword.trim())
+    .filter((t) => t.hospitalId === hospital.id && t.keyword && t.keyword.trim())
     .slice()
     .sort((a, b) => {
       const ca = a.createdAt || 0;
@@ -2492,7 +2497,7 @@ function buildDataFromTabularSheets(ss) {
   return { hospitals, tasks, quotaOverrides: {}, tagPool: [] };
 }`;
 
-const CURRENT_CACHE_VERSION = 'v20260823_04';
+const CURRENT_CACHE_VERSION = 'v20260824_01';
 const CACHE_VERSION_KEY = 'medigo_naver_tracker_cache_version';
 
 (async function bootstrap() {

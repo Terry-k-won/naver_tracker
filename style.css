@@ -1721,40 +1721,70 @@ html[data-theme="dark"] .status-select[data-status="보고"] {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-height: 440px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
 .keyword-item {
   background: var(--surface-page);
   border: 1px solid var(--gridline);
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: 10px;
+  padding: 8px 12px;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.keyword-item:hover {
+  border-color: var(--series-1);
+  background: var(--surface-card);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.05);
 }
 
 .keyword-item-head {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
 }
 
 .keyword-item-text {
   font-size: 12.5px;
   font-weight: 700;
+  color: var(--text-primary);
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.keyword-item-type-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  flex-shrink: 0;
+}
+
 .keyword-item-stats {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  font-size: 10.5px;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
   color: var(--text-muted);
 }
+
 .keyword-item-stats strong {
   color: var(--text-secondary);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+
+.stat-sep {
+  color: var(--border);
+  font-size: 10px;
 }
 
 .keyword-empty {
@@ -2371,40 +2401,17 @@ input.url-input {
     width: 100%;
   }
 
-  /* Req 3: Compact Recent Keyword Chips */
   .keyword-list {
     display: flex;
-    flex-wrap: wrap;
-    gap: 4px 6px;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 320px;
+    overflow-y: auto;
   }
 
-  .keyword-item-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    background: var(--surface-page);
-    border: 1px solid var(--gridline);
-    border-radius: 999px;
-    padding: 3px 8px;
-    font-size: 11px;
-    max-width: 100%;
-    white-space: nowrap;
-  }
-
-  .keyword-item-name {
-    font-weight: 700;
-    color: var(--text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .keyword-item-mini-stats {
-    font-size: 9.5px;
-    color: var(--text-muted);
-    font-weight: 600;
-    background: color-mix(in srgb, var(--text-muted) 10%, transparent);
-    padding: 1px 4px;
-    border-radius: 4px;
+  .keyword-item {
+    padding: 6px 10px;
+    border-radius: 8px;
   }
 }
 
