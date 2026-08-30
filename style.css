@@ -2036,6 +2036,36 @@ input.url-input {
   transform: translateY(-1px);
 }
 
+.pdf-report-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--series-1);
+  color: #fff;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.pdf-report-btn:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.report-export-header-btn {
+  color: var(--series-1) !important;
+  border-color: color-mix(in srgb, var(--series-1) 40%, transparent) !important;
+  background: color-mix(in srgb, var(--series-1) 8%, transparent) !important;
+  font-weight: 700 !important;
+}
+
+.report-export-header-btn:hover {
+  background: color-mix(in srgb, var(--series-1) 16%, transparent) !important;
+}
+
 .google-guide-box {
   background: var(--surface-page);
   border: 1px solid var(--border);

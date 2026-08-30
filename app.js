@@ -778,6 +778,7 @@ function renderHeader() {
     </div>
     <div class="header-actions">
       ${isDetail ? `<button class="primary-btn home-nav-btn" data-action="go-list" title="홈(목록)으로 돌아가기">🏠 홈으로</button>` : ''}
+      ${isDetail ? `<button class="ghost-btn report-export-header-btn" data-action="export-pdf-report" title="Dr.NAEO 성과 보고서 PDF 출력/다운로드">📄 PDF 보고서</button>` : ''}
       <button class="ghost-btn" data-action="export-data" title="현재 데이터를 JSON 백업 파일로 저장">내보내기</button>
       <button class="ghost-btn" data-action="import-data" title="백업 파일에서 데이터 복원">가져오기</button>
       <button class="ghost-btn theme-toggle" data-action="toggle-theme" title="${nextThemeLabel}로 전환" aria-label="${nextThemeLabel}로 전환">
@@ -1413,6 +1414,7 @@ function renderDetailView() {
       <span class="month-nav-label">${cycleLabel(hospital, state.year, state.month)}</span>
       <button class="icon-btn" data-action="next-month">▶</button>
       ${!isCurrentCycle ? `<button class="ghost-btn" data-action="today-month">${periodWord(hospital)}</button>` : ''}
+      <button class="primary-btn pdf-report-btn" data-action="export-pdf-report" title="Dr.NAEO 성과 보고서 PDF 출력/다운로드">📄 PDF 보고서 내보내기</button>
     </div>
   </div>
   <div class="detail-body">
@@ -1941,6 +1943,563 @@ function exportDataFile() {
   URL.revokeObjectURL(url);
 }
 
+function generatePdfReportHtml(hospital, year, month) {
+  const ymKey = monthKey(year, month);
+  const quota = getEffectiveQuota(hospital, ymKey);
+  const cycleText = cycleLabel(hospital, year, month);
+  const word = periodWord(hospital, year, month);
+  const tasks = getTasksForCycle(hospital, year, month);
+
+  // Quotas
+  const brandBlogQuota = Number(quota.brandBlog) || 0;
+  const pressQuota = Number(quota.press) || 0;
+  const receiptQuota = Number(quota.receipt) || 0;
+  const totalQuota = brandBlogQuota + pressQuota + receiptQuota;
+
+  // Actual Completed Tasks
+  const brandBlogDone = getCompletedCount(hospital, year, month, 'brandBlog');
+  const pressDone = getCompletedCount(hospital, year, month, 'press');
+  const receiptDone = getCompletedCount(hospital, year, month, 'receipt');
+  const totalDone = brandBlogDone + pressDone + receiptDone;
+
+  const totalPct = totalQuota > 0 ? Math.min(100, Math.round((totalDone / totalQuota) * 100)) : (totalDone > 0 ? 100 : 0);
+  const brandBlogPct = brandBlogQuota > 0 ? Math.min(100, Math.round((brandBlogDone / brandBlogQuota) * 100)) : (brandBlogDone > 0 ? 100 : 0);
+  const pressPct = pressQuota > 0 ? Math.min(100, Math.round((pressDone / pressQuota) * 100)) : (pressDone > 0 ? 100 : 0);
+  const receiptPct = receiptQuota > 0 ? Math.min(100, Math.round((receiptDone / receiptQuota) * 100)) : (receiptDone > 0 ? 100 : 0);
+
+  // Performance Highlights
+  const perfTasks = tasks.filter(t => t.performance && t.performance.trim());
+
+  // Sort tasks by publishedDate or deadline
+  const sortedTasks = tasks.slice().sort((a, b) => {
+    const aDate = a.publishedDate || a.deadline || '';
+    const bDate = b.publishedDate || b.deadline || '';
+    return aDate.localeCompare(bDate);
+  });
+
+  const taskRowsHtml = sortedTasks.length > 0
+    ? sortedTasks.map(t => {
+        const typeMeta = TYPE_META[t.type] || TYPE_META.brandBlog;
+        const typeLabel = typeMeta.label;
+        const dateStr = t.publishedDate ? t.publishedDate : (t.deadline ? `${t.deadline} (마감)` : '-');
+        
+        let urlHtml = '-';
+        if (t.publishedUrl && t.publishedUrl.trim()) {
+          const u = esc(t.publishedUrl.trim());
+          urlHtml = `<a href="${u}" target="_blank" rel="noopener noreferrer" class="url-link">${u}</a>`;
+        }
+
+        let perfHtml = '-';
+        if (t.performance && t.performance.trim()) {
+          perfHtml = `<span class="perf-highlight">🏆 ${esc(t.performance.trim())}</span>`;
+        }
+
+        let kwDisplay = esc(t.keyword || '');
+        if (!kwDisplay) {
+          kwDisplay = t.type === 'receipt' ? '영수증 리뷰' : '(미지정)';
+        }
+
+        return `
+        <tr>
+          <td><strong class="kw-title">${kwDisplay}</strong>${t.topicText ? `<div class="topic-sub">${esc(t.topicText)}</div>` : ''}</td>
+          <td><span class="badge-type badge-${t.type}">${typeLabel}</span></td>
+          <td class="date-cell">${esc(dateStr)}</td>
+          <td>${urlHtml}</td>
+          <td>${perfHtml}</td>
+        </tr>`;
+      }).join('')
+    : `<tr><td colspan="5" style="text-align:center; padding: 24px; color: #868E96;">이번 주기에 등록된 작업 항목이 없습니다.</td></tr>`;
+
+  const perfChipsHtml = perfTasks.length > 0
+    ? perfTasks.map(t => `<div class="perf-chip"><strong>${esc(t.keyword || TYPE_META[t.type].label)}</strong>: ${esc(t.performance)}</div>`).join('')
+    : `<span style="color:#868E96; font-size:11.5px;">등록된 주요 성과 항목이 아직 없습니다.</span>`;
+
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Dr.NAEO 마케팅 성과 보고서 - ${esc(hospital.name)} (${word})</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<style>
+  @page {
+    size: A4 portrait;
+    margin: 12mm 15mm;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Pretendard Variable", Pretendard, -apple-system, sans-serif;
+    color: #17181C;
+    background: #FFFFFF;
+    font-size: 12px;
+    line-height: 1.5;
+    word-break: keep-all;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .no-print-bar {
+    position: sticky;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: #0E1015;
+    color: #FFFFFF;
+    padding: 12px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+    z-index: 9999;
+  }
+  .no-print-info {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: #37D67F;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .no-print-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .no-print-btn {
+    background: #12A35C;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .no-print-btn:hover { background: #0FB864; transform: translateY(-1px); }
+  .no-print-btn.close-btn { background: #333742; }
+  .no-print-btn.close-btn:hover { background: #495057; }
+
+  @media print {
+    .no-print-bar { display: none !important; }
+    body { padding: 0 !important; background: #FFF !important; }
+    .report-wrapper { padding: 0 !important; margin: 0 !important; max-width: 100% !important; }
+  }
+
+  .report-wrapper {
+    max-width: 820px;
+    margin: 20px auto;
+    padding: 32px 28px;
+    background: #FFFFFF;
+  }
+
+  /* Brand Header */
+  .report-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    border-bottom: 2.5px solid #12A35C;
+    padding-bottom: 18px;
+    margin-bottom: 24px;
+  }
+  .brand-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .brand-logo-svg {
+    width: 38px;
+    height: 38px;
+  }
+  .brand-title-wrap {
+    display: flex;
+    flex-direction: column;
+  }
+  .brand-name {
+    font-size: 24px;
+    font-weight: 400;
+    color: #17181C;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+  .brand-name b { font-weight: 800; color: #12A35C; }
+  .brand-sub {
+    font-size: 11px;
+    color: #6E6E78;
+    margin-top: 3px;
+    font-weight: 500;
+  }
+  .report-meta {
+    text-align: right;
+  }
+  .report-main-title {
+    font-size: 18px;
+    font-weight: 800;
+    color: #17181C;
+  }
+  .report-date-badge {
+    font-size: 11.5px;
+    color: #6E6E78;
+    margin-top: 4px;
+  }
+
+  /* Summary Cards */
+  .meta-card-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .meta-card {
+    background: #F8F9FA;
+    border: 1px solid #E9ECEF;
+    border-radius: 12px;
+    padding: 16px 18px;
+  }
+  .meta-card-title {
+    font-size: 11.5px;
+    color: #6E6E78;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .meta-card-value {
+    font-size: 20px;
+    font-weight: 800;
+    color: #17181C;
+    line-height: 1.2;
+  }
+  .meta-card-sub {
+    font-size: 11px;
+    color: #12A35C;
+    font-weight: 700;
+    margin-top: 4px;
+  }
+
+  /* Section Title */
+  .section-title {
+    font-size: 15px;
+    font-weight: 800;
+    color: #17181C;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title::before {
+    content: '';
+    display: inline-block;
+    width: 4.5px;
+    height: 15px;
+    background: #12A35C;
+    border-radius: 2px;
+  }
+
+  /* Breakdown Table */
+  .quota-summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 24px;
+    font-size: 12px;
+  }
+  .quota-summary-table th, .quota-summary-table td {
+    padding: 10px 14px;
+    border: 1px solid #E9ECEF;
+    text-align: center;
+  }
+  .quota-summary-table th {
+    background: #F1F3F5;
+    font-weight: 700;
+    color: #495057;
+  }
+  .quota-summary-table td {
+    background: #FFFFFF;
+  }
+
+  .progress-bg {
+    background: #E9ECEF;
+    border-radius: 6px;
+    height: 8px;
+    width: 100%;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .progress-fill {
+    background: #12A35C;
+    height: 100%;
+    border-radius: 6px;
+  }
+
+  /* Performance Summary Box */
+  .perf-summary-box {
+    background: #F8F9FA;
+    border: 1px solid #E9ECEF;
+    border-left: 4.5px solid #12A35C;
+    padding: 14px 18px;
+    border-radius: 0 10px 10px 0;
+    margin-bottom: 28px;
+  }
+  .perf-chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .perf-chip {
+    background: #FFFFFF;
+    border: 1px solid #CED4DA;
+    border-radius: 20px;
+    padding: 5px 12px;
+    font-size: 11px;
+    color: #212529;
+  }
+  .perf-chip strong {
+    color: #12A35C;
+  }
+
+  /* Main Task Table */
+  .task-report-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 28px;
+    font-size: 11.5px;
+  }
+  .task-report-table th {
+    background: #0E1015;
+    color: #FFFFFF;
+    padding: 11px 14px;
+    text-align: left;
+    font-size: 11.5px;
+    font-weight: 700;
+  }
+  .task-report-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid #E9ECEF;
+    vertical-align: middle;
+  }
+  .task-report-table tr:nth-child(even) td {
+    background: #F8F9FA;
+  }
+  .kw-title {
+    font-size: 12px;
+    color: #17181C;
+    font-weight: 700;
+  }
+  .topic-sub {
+    font-size: 11px;
+    color: #6E6E78;
+    margin-top: 2px;
+  }
+  .date-cell {
+    white-space: nowrap;
+    color: #495057;
+  }
+  .badge-type {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+  .badge-brandBlog { background: rgba(55,214,127,0.15); color: #0E8A57; }
+  .badge-press { background: rgba(78,162,233,0.15); color: #2B72C4; }
+  .badge-receipt { background: rgba(240,165,0,0.15); color: #C77800; }
+
+  .url-link {
+    color: #2B72C4;
+    text-decoration: none;
+    font-size: 11px;
+    word-break: break-all;
+  }
+
+  .perf-highlight {
+    display: inline-block;
+    background: #E6FCF5;
+    color: #0CA678;
+    border: 1px solid #96F2D7;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 11px;
+  }
+
+  /* Footer */
+  .report-footer {
+    text-align: center;
+    border-top: 1px solid #E9ECEF;
+    padding-top: 18px;
+    color: #868E96;
+    font-size: 11px;
+    margin-top: 36px;
+  }
+  .report-footer b { color: #12A35C; }
+</style>
+</head>
+<body>
+
+<div class="no-print-bar">
+  <div class="no-print-info">
+    <span>📄 Dr.NAEO 마케팅 성과 보고서 미리보기</span>
+  </div>
+  <div class="no-print-actions">
+    <button class="no-print-btn" onclick="window.print();">🖨️ PDF로 저장 / 인쇄하기</button>
+    <button class="no-print-btn close-btn" onclick="window.close();">✖ 닫기</button>
+  </div>
+</div>
+
+<div class="report-wrapper">
+  <header class="report-header">
+    <div class="brand-group">
+      <svg class="brand-logo-svg" viewBox="0 0 24 24">
+        <defs>
+          <path id="tri_pdf" d="M12 2.2c1.5 0 2.7.8 3.5 2.2l4.8 8.3c.8 1.4.9 2.9.1 4.2-.8 1.3-2.1 2-3.7 2H7.3c-1.6 0-2.9-.7-3.7-2-.8-1.3-.7-2.8.1-4.2l4.8-8.3C9.3 3 10.5 2.2 12 2.2z"/>
+          <clipPath id="tc_pdf"><use href="#tri_pdf"/></clipPath>
+          <radialGradient id="wg1_pdf" cx="30%" cy="24%" r="75%"><stop offset="0%" stop-color="#37D67F"/><stop offset="100%" stop-color="#37D67F" stop-opacity="0"/></radialGradient>
+          <radialGradient id="wg2_pdf" cx="76%" cy="30%" r="80%"><stop offset="0%" stop-color="#0FB864"/><stop offset="100%" stop-color="#0FB864" stop-opacity="0"/></radialGradient>
+          <radialGradient id="wg3_pdf" cx="28%" cy="80%" r="85%"><stop offset="0%" stop-color="#0E8A57"/><stop offset="100%" stop-color="#0E8A57" stop-opacity="0"/></radialGradient>
+          <radialGradient id="wg4_pdf" cx="80%" cy="78%" r="85%"><stop offset="0%" stop-color="#0B6E43"/><stop offset="100%" stop-color="#0B6E43" stop-opacity="0"/></radialGradient>
+        </defs>
+        <g clip-path="url(#tc_pdf)">
+          <rect width="24" height="24" fill="#12A35C"/>
+          <rect width="24" height="24" fill="url(#wg4_pdf)"/>
+          <rect width="24" height="24" fill="url(#wg3_pdf)"/>
+          <rect width="24" height="24" fill="url(#wg2_pdf)"/>
+          <rect width="24" height="24" fill="url(#wg1_pdf)"/>
+          <circle cx="8" cy="9" r="4.5" fill="#37D67F" opacity=".28"/>
+          <circle cx="16.5" cy="15" r="5" fill="#0B6E43" opacity=".3"/>
+          <circle cx="13" cy="7.5" r="3" fill="#5FE49A" opacity=".22"/>
+        </g>
+      </svg>
+      <div class="brand-title-wrap">
+        <span class="brand-name">Dr.<b>NAEO</b></span>
+        <span class="brand-sub">의사가 직접 쓰는 네이버 마케팅</span>
+      </div>
+    </div>
+    <div class="report-meta">
+      <div class="report-main-title">네이버 마케팅 성과 보고서</div>
+      <div class="report-date-badge">${esc(hospital.name)} · ${esc(cycleText)}</div>
+    </div>
+  </header>
+
+  <!-- Summary Grid -->
+  <div class="meta-card-grid">
+    <div class="meta-card">
+      <div class="meta-card-title">이번 주기 목표 할당량</div>
+      <div class="meta-card-value">${totalQuota}건</div>
+      <div class="meta-card-sub">블로그 ${brandBlogQuota} | 기자단 ${pressQuota} | 영수증 ${receiptQuota}</div>
+    </div>
+    <div class="meta-card">
+      <div class="meta-card-value">${totalDone}건 <span style="font-size:14px; font-weight:700; color:#12A35C;">(${totalPct}%)</span></div>
+      <div class="meta-card-title" style="margin-top:6px;">발행 완료량 (목표 달성률)</div>
+      <div class="progress-bg"><div class="progress-fill" style="width: ${totalPct}%;"></div></div>
+    </div>
+    <div class="meta-card">
+      <div class="meta-card-title">등록된 성과 수</div>
+      <div class="meta-card-value">${perfTasks.length}건</div>
+      <div class="meta-card-sub">주요 검색어 랭킹 및 노출 실적</div>
+    </div>
+  </div>
+
+  <!-- Section 1: Quota Breakdown -->
+  <div class="section-title">이번 주기 항목별 발행 현황</div>
+  <table class="quota-summary-table">
+    <thead>
+      <tr>
+        <th>항목 구분</th>
+        <th>목표 할당량</th>
+        <th>실제 발행량</th>
+        <th>달성률</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>브랜드 블로그</strong></td>
+        <td>${brandBlogQuota}건</td>
+        <td>${brandBlogDone}건</td>
+        <td><strong>${brandBlogPct}%</strong></td>
+      </tr>
+      <tr>
+        <td><strong>기자단</strong></td>
+        <td>${pressQuota}건</td>
+        <td>${pressDone}건</td>
+        <td><strong>${pressPct}%</strong></td>
+      </tr>
+      <tr>
+        <td><strong>영수증 리뷰</strong></td>
+        <td>${receiptQuota}건</td>
+        <td>${receiptDone}건</td>
+        <td><strong>${receiptPct}%</strong></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Section 2: Performance Highlights -->
+  <div class="section-title">주요 성과 요약</div>
+  <div class="perf-summary-box">
+    <div style="font-weight:700; font-size:12px; color:#17181C;">🏆 주요 키워드 노출 & 랭킹 성과</div>
+    <div class="perf-chip-list">
+      ${perfChipsHtml}
+    </div>
+  </div>
+
+  <!-- Section 3: Task Details Table -->
+  <div class="section-title">작업 상세 내역</div>
+  <table class="task-report-table">
+    <thead>
+      <tr>
+        <th style="width: 25%;">키워드</th>
+        <th style="width: 15%;">항목종류</th>
+        <th style="width: 15%;">발행일</th>
+        <th style="width: 25%;">URL</th>
+        <th style="width: 20%;">성과</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${taskRowsHtml}
+    </tbody>
+  </table>
+
+  <footer class="report-footer">
+    <b>Dr.NAEO</b> · 의사가 직접 쓰는 네이버 마케팅 &nbsp;|&nbsp; 보고서 생성일: ${TODAY_STR}
+  </footer>
+</div>
+
+<script>
+  window.addEventListener('load', function() {
+    setTimeout(function() {
+      window.print();
+    }, 400);
+  });
+</script>
+</body>
+</html>`;
+}
+
+function exportHospitalPdfReport(hospital, year, month) {
+  if (!hospital) return;
+  const reportHtml = generatePdfReportHtml(hospital, year, month);
+  const printWin = window.open('', '_blank', 'width=1000,height=900,scrollbars=yes,resizable=yes');
+  if (!printWin) {
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+    iframe.contentDocument.open();
+    iframe.contentDocument.write(reportHtml);
+    iframe.contentDocument.close();
+    setTimeout(() => {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+      setTimeout(() => document.body.removeChild(iframe), 2000);
+    }, 400);
+    return;
+  }
+  printWin.document.open();
+  printWin.document.write(reportHtml);
+  printWin.document.close();
+}
+
 function importDataFile(file) {
   const reader = new FileReader();
   reader.onload = () => {
@@ -2088,6 +2647,15 @@ function onAppClick(e) {
     case 'export-data':
       exportDataFile();
       break;
+    case 'export-pdf-report': {
+      const hospital = getHospital(state.hospitalId);
+      if (hospital) {
+        exportHospitalPdfReport(hospital, state.year, state.month);
+      } else {
+        alert('보고서를 내보낼 병원을 먼저 선택해주세요.');
+      }
+      break;
+    }
     case 'import-data':
       document.getElementById('importFileInput').click();
       break;
@@ -2503,7 +3071,7 @@ function buildDataFromTabularSheets(ss) {
   return { hospitals, tasks, quotaOverrides: {}, tagPool: [] };
 }`;
 
-const CURRENT_CACHE_VERSION = 'v20260824_02';
+const CURRENT_CACHE_VERSION = 'v20260830_01';
 const CACHE_VERSION_KEY = 'medigo_naver_tracker_cache_version';
 
 (async function bootstrap() {
