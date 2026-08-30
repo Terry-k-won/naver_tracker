@@ -1967,8 +1967,16 @@ function generatePdfReportHtml(hospital, year, month) {
   const pressPct = pressQuota > 0 ? Math.min(100, Math.round((pressDone / pressQuota) * 100)) : (pressDone > 0 ? 100 : 0);
   const receiptPct = receiptQuota > 0 ? Math.min(100, Math.round((receiptDone / receiptQuota) * 100)) : (receiptDone > 0 ? 100 : 0);
 
-  // Performance Highlights
-  const perfTasks = tasks.filter(t => t.performance && t.performance.trim());
+  // Performance Highlights (영수증 리뷰는 성과 카운팅 및 성과율에서 완전 제외)
+  const brandBlogPerfCount = tasks.filter(t => t.type === 'brandBlog' && t.performance && t.performance.trim()).length;
+  const pressPerfCount = tasks.filter(t => t.type === 'press' && t.performance && t.performance.trim()).length;
+
+  // SEO(성과) 대상 발행 건수: 브랜드 블로그 + 기자단 (영수증 리뷰 제외)
+  const seoDone = brandBlogDone + pressDone;
+  const seoPerfCount = brandBlogPerfCount + pressPerfCount;
+  const seoPerfPct = seoDone > 0 ? Math.min(100, Math.round((seoPerfCount / seoDone) * 100)) : (seoPerfCount > 0 ? 100 : 0);
+
+  const perfTasks = tasks.filter(t => t.type !== 'receipt' && t.performance && t.performance.trim());
 
   // Sort tasks by publishedDate or deadline
   const sortedTasks = tasks.slice().sort((a, b) => {
@@ -1990,7 +1998,9 @@ function generatePdfReportHtml(hospital, year, month) {
         }
 
         let perfHtml = '-';
-        if (t.performance && t.performance.trim()) {
+        if (t.type === 'receipt') {
+          perfHtml = `<span style="color:#ADB5BD; font-size:11px;">- (성과 평가 제외)</span>`;
+        } else if (t.performance && t.performance.trim()) {
           perfHtml = `<span class="perf-highlight">🏆 ${esc(t.performance.trim())}</span>`;
         }
 
@@ -2386,26 +2396,27 @@ function generatePdfReportHtml(hospital, year, month) {
       <div class="meta-card-sub">블로그 ${brandBlogQuota} | 기자단 ${pressQuota} | 영수증 ${receiptQuota}</div>
     </div>
     <div class="meta-card">
-      <div class="meta-card-value">${totalDone}건 <span style="font-size:14px; font-weight:700; color:#12A35C;">(${totalPct}%)</span></div>
-      <div class="meta-card-title" style="margin-top:6px;">발행 완료량 (목표 달성률)</div>
+      <div class="meta-card-value">${totalDone}건 <span style="font-size:13px; font-weight:700; color:#12A35C;">(${totalPct}%)</span></div>
+      <div class="meta-card-title" style="margin-top:6px;">총 발행 완료량 (목표 달성률)</div>
       <div class="progress-bg"><div class="progress-fill" style="width: ${totalPct}%;"></div></div>
     </div>
     <div class="meta-card">
-      <div class="meta-card-title">등록된 성과 수</div>
-      <div class="meta-card-value">${perfTasks.length}건</div>
-      <div class="meta-card-sub">주요 검색어 랭킹 및 노출 실적</div>
+      <div class="meta-card-value">${seoPerfCount}건 ${seoDone > 0 ? `<span style="font-size:13px; font-weight:700; color:#12A35C;">(${seoPerfPct}%)</span>` : ''}</div>
+      <div class="meta-card-title" style="margin-top:6px;">주요 노출 성과율 (영수증 제외)</div>
+      <div class="meta-card-sub">블로그·기자단(${seoDone}건) 중 상위노출 성과</div>
     </div>
   </div>
 
   <!-- Section 1: Quota Breakdown -->
-  <div class="section-title">이번 주기 항목별 발행 현황</div>
+  <div class="section-title">이번 주기 항목별 발행 & 성과 현황</div>
   <table class="quota-summary-table">
     <thead>
       <tr>
         <th>항목 구분</th>
         <th>목표 할당량</th>
         <th>실제 발행량</th>
-        <th>달성률</th>
+        <th>발행 달성률</th>
+        <th>주요 성과 건수</th>
       </tr>
     </thead>
     <tbody>
@@ -2414,26 +2425,29 @@ function generatePdfReportHtml(hospital, year, month) {
         <td>${brandBlogQuota}건</td>
         <td>${brandBlogDone}건</td>
         <td><strong>${brandBlogPct}%</strong></td>
+        <td>${brandBlogPerfCount > 0 ? `<span class="perf-highlight" style="font-size:11px; padding:2px 7px;">🏆 ${brandBlogPerfCount}건</span>` : '-'}</td>
       </tr>
       <tr>
         <td><strong>기자단</strong></td>
         <td>${pressQuota}건</td>
         <td>${pressDone}건</td>
         <td><strong>${pressPct}%</strong></td>
+        <td>${pressPerfCount > 0 ? `<span class="perf-highlight" style="font-size:11px; padding:2px 7px;">🏆 ${pressPerfCount}건</span>` : '-'}</td>
       </tr>
       <tr>
         <td><strong>영수증 리뷰</strong></td>
         <td>${receiptQuota}건</td>
         <td>${receiptDone}건</td>
         <td><strong>${receiptPct}%</strong></td>
+        <td><span style="color:#ADB5BD; font-size:11px;">- (성과 평가 제외)</span></td>
       </tr>
     </tbody>
   </table>
 
   <!-- Section 2: Performance Highlights -->
-  <div class="section-title">주요 성과 요약</div>
+  <div class="section-title">주요 성과 요약 (영수증 리뷰 제외)</div>
   <div class="perf-summary-box">
-    <div style="font-weight:700; font-size:12px; color:#17181C;">🏆 주요 키워드 노출 & 랭킹 성과</div>
+    <div style="font-weight:700; font-size:12px; color:#17181C;">🏆 블로그·기자단 주요 키워드 노출 & 랭킹 성과</div>
     <div class="perf-chip-list">
       ${perfChipsHtml}
     </div>
@@ -3071,7 +3085,7 @@ function buildDataFromTabularSheets(ss) {
   return { hospitals, tasks, quotaOverrides: {}, tagPool: [] };
 }`;
 
-const CURRENT_CACHE_VERSION = 'v20260830_01';
+const CURRENT_CACHE_VERSION = 'v20260830_02';
 const CACHE_VERSION_KEY = 'medigo_naver_tracker_cache_version';
 
 (async function bootstrap() {
