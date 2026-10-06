@@ -389,7 +389,6 @@ async function loadInitialData() {
 
     const base = backupData || { hospitals: INITIAL_HOSPITALS, quotaOverrides: {}, tasks: INITIAL_TASKS, tagPool: [] };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(base));
-    if (googleScriptUrl) pushRemoteState(base);
     return base;
   }
 
@@ -399,7 +398,6 @@ async function loadInitialData() {
   }
 
   if (isLocalValid) {
-    if (googleScriptUrl) pushRemoteState(local);
     return local;
   }
 
@@ -415,30 +413,51 @@ function saveData() {
   saveDebounceTimer = setTimeout(() => pushRemoteState(db), 600);
 }
 
+async function syncRemoteDataIfIdle() {
+  if (!googleScriptUrl) return;
+
+  // 로컬 수정 내용이 전송 중이거나, 저장이 대기 중이거나, 구글 시트에 막 동기화된 지 8초 이내인 경우 덮어쓰기 방지
+  if (isPushingRemote || saveDebounceTimer || (Date.now() - lastPushTimestamp < 8000)) {
+    return;
+  }
+
+  // 사용자가 입력 필드(input, textarea)에 포커스하고 타이핑 중인 경우 방해하지 않음
+  const activeEl = document.activeElement;
+  if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+    return;
+  }
+
+  const remote = await fetchRemoteData();
+  if (!remote) return;
+
+  if (isPushingRemote || saveDebounceTimer || (Date.now() - lastPushTimestamp < 8000)) {
+    return;
+  }
+
+  const localStr = JSON.stringify(db);
+  const remoteStr = JSON.stringify(remote);
+  if (localStr !== remoteStr) {
+    db = remote;
+    localStorage.setItem(STORAGE_KEY, remoteStr);
+    render();
+  }
+}
+
 function startRemoteSyncPolling() {
-  setInterval(async () => {
-    if (!googleScriptUrl) return;
+  setInterval(syncRemoteDataIfIdle, 10000);
 
-    // 로컬 수정 내용이 전송 중이거나, 저장이 대기 중이거나, 구글 시트에 막 동기화된 지 8초 이내인 경우 덮어쓰기 방지
-    if (isPushingRemote || saveDebounceTimer || (Date.now() - lastPushTimestamp < 8000)) {
-      return;
+  // 모바일 기기 화면 켜짐 / 백그라운드 복귀 / 탭 전환 시 즉시 서버 최신 데이터 동기화
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      syncRemoteDataIfIdle();
     }
-
-    const remote = await fetchRemoteData();
-    if (!remote) return;
-
-    if (isPushingRemote || saveDebounceTimer || (Date.now() - lastPushTimestamp < 8000)) {
-      return;
-    }
-
-    const localStr = JSON.stringify(db);
-    const remoteStr = JSON.stringify(remote);
-    if (localStr !== remoteStr) {
-      db = remote;
-      localStorage.setItem(STORAGE_KEY, remoteStr);
-      render();
-    }
-  }, 10000);
+  });
+  window.addEventListener('pageshow', () => {
+    syncRemoteDataIfIdle();
+  });
+  window.addEventListener('focus', () => {
+    syncRemoteDataIfIdle();
+  });
 }
 
 let db = null;
@@ -446,8 +465,8 @@ let db = null;
 let state = {
   view: 'list',        // 'list' | 'detail'
   hospitalId: null,
-  year: 2026,
-  month: 8,
+  year: today.getFullYear(),
+  month: today.getMonth() + 1,
   weeklyOffset: 0,     // 0 = 이번주, -1 = 지난주, 1 = 다음주
   pwVisible: false,
   trackerExpanded: false,
@@ -562,22 +581,41 @@ function assignQuotaEvenlyForMonth(hospital, year, month) {
   return { added, moved, paused: false };
 }
 
-function autoAssignMondays(hospital, year, month) {
-  const { added, moved, paused } = assignQuotaEvenlyForMonth(hospital, year, month);
+async function autoAssignMondays(hospital, year, month) {
+  if (googleScriptUrl) {
+    try {
+      const latest = await fetchRemoteData();
+      if (latest && Array.isArray(latest.hospitals) && latest.hospitals.length > 0) {
+        db = latest;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+      }
+    } catch (e) { /* ignore */ }
+  }
+  const currentHospital = getHospital(hospital.id) || hospital;
+  const { added, moved, paused } = assignQuotaEvenlyForMonth(currentHospital, year, month);
   if (paused) {
-    alert(`"${hospital.name}" 병원은 자동 배정이 일시중지된 상태입니다. "병원 정보 수정"에서 재개할 수 있어요.`);
+    alert(`"${currentHospital.name}" 병원은 자동 배정이 일시중지된 상태입니다. "병원 정보 수정"에서 재개할 수 있어요.`);
     return;
   }
   saveData();
   render();
   if (added > 0 || moved > 0) {
-    alert(`"${hospital.name}" 병원의 ${month}월 목표 수량에 맞춰 신규 ${added}건 생성, ${moved}건 재배치하여 월요일 마감일에 고르게 배정했습니다!`);
+    alert(`"${currentHospital.name}" 병원의 ${month}월 목표 수량에 맞춰 신규 ${added}건 생성, ${moved}건 재배치하여 월요일 마감일에 고르게 배정했습니다!`);
   } else {
-    alert(`"${hospital.name}" 병원의 ${month}월은 이미 고르게 배정되어 있습니다.`);
+    alert(`"${currentHospital.name}" 병원의 ${month}월은 이미 고르게 배정되어 있습니다.`);
   }
 }
 
-function autoAssignAllHospitalsMondays(year, month) {
+async function autoAssignAllHospitalsMondays(year, month) {
+  if (googleScriptUrl) {
+    try {
+      const latest = await fetchRemoteData();
+      if (latest && Array.isArray(latest.hospitals) && latest.hospitals.length > 0) {
+        db = latest;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+      }
+    } catch (e) { /* ignore */ }
+  }
   let totalAdded = 0;
   let totalMoved = 0;
   let pausedCount = 0;
@@ -3085,7 +3123,7 @@ function buildDataFromTabularSheets(ss) {
   return { hospitals, tasks, quotaOverrides: {}, tagPool: [] };
 }`;
 
-const CURRENT_CACHE_VERSION = 'v20260830_02';
+const CURRENT_CACHE_VERSION = 'v20261006_01';
 const CACHE_VERSION_KEY = 'medigo_naver_tracker_cache_version';
 
 (async function bootstrap() {

@@ -53,7 +53,9 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  const lock = LockService.getScriptLock();
   try {
+    lock.waitLock(15000); // 동시 저장 시 최대 15초 대기 후 순차 처리
     const contents = e.postData.contents;
     if (!contents) {
       throw new Error('요청 본문(postData)이 비어있습니다.');
@@ -74,6 +76,8 @@ function doPost(e) {
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    try { lock.releaseLock(); } catch (ignored) { /* ignore */ }
   }
 }
 
