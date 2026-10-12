@@ -463,6 +463,25 @@ async function fetchSupabaseData() {
 
 let realtimeChannel = null;
 
+// ─── 자기 쓰기 에코 억제 ───────────────────────────────────────────────────
+// 내가 직접 Supabase에 쓴 행은 Realtime 이벤트로 되돌아와도 무시한다.
+// syncSupabase* 함수에서 markOwnWrite(id) 호출 → handleRealtime* 함수에서 isOwnWrite(id) 체크.
+const _ownWrites = new Map(); // id -> timestamp
+const OWN_WRITE_SUPPRESS_MS = 6000; // 6초 이내 되돌아온 이벤트는 내 쓰기로 간주하고 무시
+
+function markOwnWrite(id) {
+  if (id == null) return;
+  _ownWrites.set(String(id), Date.now());
+  setTimeout(() => _ownWrites.delete(String(id)), OWN_WRITE_SUPPRESS_MS);
+}
+
+function isOwnWrite(id) {
+  if (id == null) return false;
+  const ts = _ownWrites.get(String(id));
+  return ts !== undefined && (Date.now() - ts) < OWN_WRITE_SUPPRESS_MS;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function setupSupabaseRealtime() {
   if (!supabaseClient) return;
   if (realtimeChannel) {
@@ -490,6 +509,10 @@ function handleRealtimeTaskChange(payload) {
   if (!payload || !db || !Array.isArray(db.tasks)) return;
   const { eventType, new: newRow, old: oldRow } = payload;
 
+  // ── 자기 에코 억제: 내가 방금 쓴 행이 되돌아온 경우 무시 ──
+  const echoId = newRow?.id ?? oldRow?.id;
+  if (isOwnWrite(echoId)) return;
+
   if (eventType === 'INSERT') {
     if (!db.tasks.some(t => t.id === newRow.id)) {
       db.tasks.push({
@@ -516,7 +539,7 @@ function handleRealtimeTaskChange(payload) {
     if (idx >= 0) {
       const activeEl = document.activeElement;
       const isFocusedOnThisTask = activeEl && activeEl.closest(`tr[data-task-id="${newRow.id}"]`);
-      
+      if (isFocusedOnThisTask) return; // 편집 중인 행은 건드리지 않음
       db.tasks[idx] = {
         id: newRow.id,
         hospitalId: newRow.hospital_id,
@@ -534,7 +557,7 @@ function handleRealtimeTaskChange(payload) {
         createdAt: Number(newRow.created_at) || db.tasks[idx].createdAt
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-      if (!isFocusedOnThisTask) render();
+      render();
     }
   } else if (eventType === 'DELETE') {
     if (oldRow && oldRow.id) {
@@ -548,6 +571,11 @@ function handleRealtimeTaskChange(payload) {
 function handleRealtimeHospitalChange(payload) {
   if (!payload || !db || !Array.isArray(db.hospitals)) return;
   const { eventType, new: newRow, old: oldRow } = payload;
+
+  // ── 자기 에코 억제 ──
+  const echoId = newRow?.id ?? oldRow?.id;
+  if (isOwnWrite(echoId)) return;
+
   if (eventType === 'INSERT' || eventType === 'UPDATE') {
     const mapped = {
       id: newRow.id,
@@ -577,6 +605,11 @@ function handleRealtimeHospitalChange(payload) {
 function handleRealtimeQuotaChange(payload) {
   if (!payload || !db || !db.quotaOverrides) return;
   const { eventType, new: newRow, old: oldRow } = payload;
+
+  // ── 자기 에코 억제 ──
+  const echoKey = newRow?.key ?? oldRow?.key;
+  if (isOwnWrite(echoKey)) return;
+
   if (eventType === 'INSERT' || eventType === 'UPDATE') {
     db.quotaOverrides[newRow.key] = {
       brandBlog: Number(newRow.brand_blog) || 0,
@@ -595,6 +628,7 @@ function handleRealtimeQuotaChange(payload) {
 async function syncSupabaseTask(task) {
   if (!supabaseClient) return;
   try {
+    markOwnWrite(task.id); // 자기 에코 억제
     await supabaseClient.from('tasks').upsert({
       id: task.id,
       hospital_id: task.hospitalId,
@@ -619,6 +653,7 @@ async function syncSupabaseTask(task) {
 async function syncSupabaseTaskDelete(taskId) {
   if (!supabaseClient) return;
   try {
+    markOwnWrite(taskId); // 자기 에코 억제
     await supabaseClient.from('tasks').delete().eq('id', taskId);
   } catch (e) {
     console.error('Supabase 작업 삭제 오류:', e);
@@ -628,6 +663,7 @@ async function syncSupabaseTaskDelete(taskId) {
 async function syncSupabaseHospital(hospital) {
   if (!supabaseClient) return;
   try {
+    markOwnWrite(hospital.id); // 자기 에코 억제
     await supabaseClient.from('hospitals').upsert({
       id: hospital.id,
       name: hospital.name,
@@ -648,6 +684,7 @@ async function syncSupabaseHospital(hospital) {
 async function syncSupabaseHospitalDelete(hospitalId) {
   if (!supabaseClient) return;
   try {
+    markOwnWrite(hospitalId); // 자기 에코 억제
     await supabaseClient.from('hospitals').delete().eq('id', hospitalId);
   } catch (e) {
     console.error('Supabase 병원 삭제 오류:', e);
@@ -657,6 +694,7 @@ async function syncSupabaseHospitalDelete(hospitalId) {
 async function syncSupabaseQuota(key, override) {
   if (!supabaseClient) return;
   try {
+    markOwnWrite(key); // 자기 에코 억제
     const parts = key.split('::');
     await supabaseClient.from('quota_overrides').upsert({
       key,
@@ -674,6 +712,7 @@ async function syncSupabaseQuota(key, override) {
 async function syncSupabaseTasksBatch(taskList) {
   if (!supabaseClient || !taskList || taskList.length === 0) return;
   try {
+    taskList.forEach(task => markOwnWrite(task.id)); // 자기 에코 억제
     const rows = taskList.map(task => ({
       id: task.id,
       hospital_id: task.hospitalId,
