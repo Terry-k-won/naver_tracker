@@ -6,10 +6,14 @@ const TASK_ORDER_KEY = 'medigo_naver_tracker_task_order';
 const LONG_PRESS_MS = 450;
 
 /* ==================== 클라우드 동기화 (Supabase & Google Sheets) ==================== */
+const DEFAULT_SUPABASE_URL = 'https://pwyzqntqrwlxxtjzeons.supabase.co';
+const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB3eXpxbnRxcndseHh0anplb25zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4MDczMzAsImV4cCI6MjEwNzM4MzMzMH0.-6Op_iT2VARkZ-bA78MdnnYeUqrn-FMPlFabsFGcpDo';
 const SUPABASE_URL_KEY = 'medigo_naver_tracker_supabase_url';
 const SUPABASE_KEY_KEY = 'medigo_naver_tracker_supabase_key';
-let supabaseUrl = localStorage.getItem(SUPABASE_URL_KEY) || '';
-let supabaseKey = localStorage.getItem(SUPABASE_KEY_KEY) || '';
+let supabaseUrl = localStorage.getItem(SUPABASE_URL_KEY) || DEFAULT_SUPABASE_URL;
+let supabaseKey = localStorage.getItem(SUPABASE_KEY_KEY) || DEFAULT_SUPABASE_KEY;
+if (!supabaseUrl) supabaseUrl = DEFAULT_SUPABASE_URL;
+if (!supabaseKey) supabaseKey = DEFAULT_SUPABASE_KEY;
 let supabaseClient = null;
 
 function initSupabaseClient() {
@@ -3683,7 +3687,7 @@ function buildDataFromTabularSheets(ss) {
   return { hospitals, tasks, quotaOverrides: {}, tagPool: [] };
 }`;
 
-const CURRENT_CACHE_VERSION = 'v20261006_01';
+const CURRENT_CACHE_VERSION = 'v20261012_02';
 const CACHE_VERSION_KEY = 'medigo_naver_tracker_cache_version';
 
 (async function bootstrap() {
