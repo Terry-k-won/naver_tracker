@@ -29,9 +29,9 @@ function initSupabaseClient() {
   return null;
 }
 
-const DEFAULT_GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzj2b6DBcH-4fhfKXOhrxQgZ0V1qYmXXhlM3_J26EdBK3A84xnZMMMAUi6VF5_Q1W59kA/exec';
+const DEFAULT_GOOGLE_SCRIPT_URL = '';
 const GOOGLE_SCRIPT_URL_KEY = 'medigo_naver_tracker_google_script_url';
-let googleScriptUrl = DEFAULT_GOOGLE_SCRIPT_URL || localStorage.getItem(GOOGLE_SCRIPT_URL_KEY) || '';
+let googleScriptUrl = localStorage.getItem(GOOGLE_SCRIPT_URL_KEY) || '';
 
 // 공유 비밀번호(패스코드) 게이트 - 평문 대신 SHA-256 해시로 비교한다.
 // 비밀번호를 바꾸려면: 새 비밀번호의 SHA-256 해시값으로 아래 상수만 교체하면 된다.
@@ -535,35 +535,43 @@ function handleRealtimeTaskChange(payload) {
       render();
     }
   } else if (eventType === 'UPDATE') {
+    const activeEl = document.activeElement;
+    const isFocusedOnThisTask = activeEl && activeEl.closest(`tr[data-task-id="${newRow.id}"]`);
+    if (isFocusedOnThisTask) return; // 사용자가 현재 편집 중인 행은 건드리지 않음
+
+    const mappedTask = {
+      id: newRow.id,
+      hospitalId: newRow.hospital_id,
+      type: newRow.type || 'brandBlog',
+      keyword: newRow.keyword || '',
+      topicText: newRow.topic_text || '',
+      deadline: newRow.deadline || '',
+      status: newRow.status || '시작 전',
+      publishedDate: newRow.published_date || null,
+      publishedUrl: newRow.published_url || '',
+      keywordVolume: newRow.keyword_volume !== null && newRow.keyword_volume !== undefined ? Number(newRow.keyword_volume) : null,
+      keywordDocs: newRow.keyword_docs !== null && newRow.keyword_docs !== undefined ? Number(newRow.keyword_docs) : null,
+      keywordGap: newRow.keyword_gap !== null && newRow.keyword_gap !== undefined ? Number(newRow.keyword_gap) : null,
+      performance: newRow.performance || '',
+      createdAt: Number(newRow.created_at) || Date.now()
+    };
+
     const idx = db.tasks.findIndex(t => t.id === newRow.id);
     if (idx >= 0) {
-      const activeEl = document.activeElement;
-      const isFocusedOnThisTask = activeEl && activeEl.closest(`tr[data-task-id="${newRow.id}"]`);
-      if (isFocusedOnThisTask) return; // 편집 중인 행은 건드리지 않음
-      db.tasks[idx] = {
-        id: newRow.id,
-        hospitalId: newRow.hospital_id,
-        type: newRow.type,
-        keyword: newRow.keyword || '',
-        topicText: newRow.topic_text || '',
-        deadline: newRow.deadline || '',
-        status: newRow.status || '시작 전',
-        publishedDate: newRow.published_date || null,
-        publishedUrl: newRow.published_url || '',
-        keywordVolume: newRow.keyword_volume !== null ? Number(newRow.keyword_volume) : null,
-        keywordDocs: newRow.keyword_docs !== null ? Number(newRow.keyword_docs) : null,
-        keywordGap: newRow.keyword_gap !== null ? Number(newRow.keyword_gap) : null,
-        performance: newRow.performance || '',
-        createdAt: Number(newRow.created_at) || db.tasks[idx].createdAt
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-      render();
+      db.tasks[idx] = mappedTask;
+    } else {
+      db.tasks.push(mappedTask);
     }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+    render();
   } else if (eventType === 'DELETE') {
     if (oldRow && oldRow.id) {
+      const beforeLen = db.tasks.length;
       db.tasks = db.tasks.filter(t => t.id !== oldRow.id);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-      render();
+      if (db.tasks.length !== beforeLen) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+        render();
+      }
     }
   }
 }
@@ -629,7 +637,7 @@ async function syncSupabaseTask(task) {
   if (!supabaseClient) return;
   try {
     markOwnWrite(task.id); // 자기 에코 억제
-    await supabaseClient.from('tasks').upsert({
+    const { error } = await supabaseClient.from('tasks').upsert({
       id: task.id,
       hospital_id: task.hospitalId,
       type: task.type || 'brandBlog',
@@ -645,6 +653,7 @@ async function syncSupabaseTask(task) {
       performance: task.performance || '',
       created_at: task.createdAt ? Number(task.createdAt) : Date.now()
     });
+    if (error) console.error('Supabase 작업 단건 저장 실패:', error);
   } catch (e) {
     console.error('Supabase 작업 단건 저장 오류:', e);
   }
@@ -654,7 +663,8 @@ async function syncSupabaseTaskDelete(taskId) {
   if (!supabaseClient) return;
   try {
     markOwnWrite(taskId); // 자기 에코 억제
-    await supabaseClient.from('tasks').delete().eq('id', taskId);
+    const { error } = await supabaseClient.from('tasks').delete().eq('id', taskId);
+    if (error) console.error('Supabase 작업 삭제 실패:', error);
   } catch (e) {
     console.error('Supabase 작업 삭제 오류:', e);
   }
@@ -664,7 +674,7 @@ async function syncSupabaseHospital(hospital) {
   if (!supabaseClient) return;
   try {
     markOwnWrite(hospital.id); // 자기 에코 억제
-    await supabaseClient.from('hospitals').upsert({
+    const { error } = await supabaseClient.from('hospitals').upsert({
       id: hospital.id,
       name: hospital.name,
       default_quota: hospital.defaultQuota || { brandBlog: 0, press: 0, receipt: 0 },
@@ -676,6 +686,7 @@ async function syncSupabaseHospital(hospital) {
       auto_assign_paused: !!hospital.autoAssignPaused,
       interleave_types: !!hospital.interleaveTypes
     });
+    if (error) console.error('Supabase 병원 저장 실패:', error);
   } catch (e) {
     console.error('Supabase 병원 저장 오류:', e);
   }
@@ -685,7 +696,8 @@ async function syncSupabaseHospitalDelete(hospitalId) {
   if (!supabaseClient) return;
   try {
     markOwnWrite(hospitalId); // 자기 에코 억제
-    await supabaseClient.from('hospitals').delete().eq('id', hospitalId);
+    const { error } = await supabaseClient.from('hospitals').delete().eq('id', hospitalId);
+    if (error) console.error('Supabase 병원 삭제 실패:', error);
   } catch (e) {
     console.error('Supabase 병원 삭제 오류:', e);
   }
@@ -696,7 +708,7 @@ async function syncSupabaseQuota(key, override) {
   try {
     markOwnWrite(key); // 자기 에코 억제
     const parts = key.split('::');
-    await supabaseClient.from('quota_overrides').upsert({
+    const { error } = await supabaseClient.from('quota_overrides').upsert({
       key,
       hospital_id: parts[0] || '',
       year_month: parts[1] || '',
@@ -704,6 +716,7 @@ async function syncSupabaseQuota(key, override) {
       press: Number(override.press) || 0,
       receipt: Number(override.receipt) || 0
     });
+    if (error) console.error('Supabase 할당량 저장 실패:', error);
   } catch (e) {
     console.error('Supabase 할당량 저장 오류:', e);
   }
@@ -729,7 +742,8 @@ async function syncSupabaseTasksBatch(taskList) {
       performance: task.performance || '',
       created_at: task.createdAt ? Number(task.createdAt) : Date.now()
     }));
-    await supabaseClient.from('tasks').upsert(rows);
+    const { error } = await supabaseClient.from('tasks').upsert(rows);
+    if (error) console.error('Supabase 작업 배치 저장 실패:', error);
   } catch (e) {
     console.error('Supabase 작업 배치 저장 오류:', e);
   }
@@ -738,15 +752,20 @@ async function syncSupabaseTasksBatch(taskList) {
 async function loadInitialData() {
   initSupabaseClient();
   if (supabaseClient) {
+    setupSupabaseRealtime();
     const supaData = await fetchSupabaseData();
     if (supaData && Array.isArray(supaData.hospitals) && supaData.hospitals.length > 0) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(supaData));
-      setupSupabaseRealtime();
       return supaData;
+    }
+    // 네트워크 일시 지연 시 로컬 캐시 우선 사용
+    const local = loadLocalData();
+    if (local && Array.isArray(local.hospitals) && local.hospitals.length > 0) {
+      return local;
     }
   }
 
-  const remote = await fetchRemoteData();
+  const remote = googleScriptUrl ? await fetchRemoteData() : null;
   const local = loadLocalData();
 
   const isRemoteValid = remote && Array.isArray(remote.hospitals) && remote.hospitals.length >= 7;
@@ -776,11 +795,7 @@ async function loadInitialData() {
     return remote;
   }
 
-  if (isLocalValid) {
-    return local;
-  }
-
-  return remote || local;
+  return local || remote;
 }
 
 let lastSyncedUpdatedAt = null;
@@ -796,7 +811,44 @@ function saveData() {
   saveDebounceTimer = setTimeout(() => pushRemoteState(db), 600);
 }
 
+// ─── Supabase 백그라운드 동기화 (탭 복귀 및 30초 주기 보조 점검) ───────────
+async function syncSupabaseIfIdle() {
+  if (!supabaseClient) return;
+
+  // 내가 직접 작성/수정한 쓰기 작업이 6초 이내에 있었으면 원격 덮어쓰기 금지
+  if (_ownWrites.size > 0) return;
+
+  // 사용자가 입력 필드(input, textarea, select)에 포커스하고 있거나 입력 중인 경우 중단
+  const activeEl = document.activeElement;
+  if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT')) {
+    return;
+  }
+
+  try {
+    const supaData = await fetchSupabaseData();
+    if (!supaData || !Array.isArray(supaData.hospitals) || supaData.hospitals.length === 0) return;
+
+    if (_ownWrites.size > 0) return;
+    const activeElAfter = document.activeElement;
+    if (activeElAfter && (activeElAfter.tagName === 'INPUT' || activeElAfter.tagName === 'TEXTAREA' || activeElAfter.tagName === 'SELECT')) {
+      return;
+    }
+
+    const localStr = JSON.stringify(db);
+    const supaStr = JSON.stringify(supaData);
+    if (localStr !== supaStr) {
+      db = supaData;
+      localStorage.setItem(STORAGE_KEY, supaStr);
+      render();
+    }
+  } catch (e) {
+    console.warn('Supabase 백그라운드 동기화 확인 실패:', e);
+  }
+}
+
+// ─── 구글 시트 백그라운드 동기화 (Supabase 미연결 레거시 환경 전용) ──────────
 async function syncRemoteDataIfIdle() {
+  if (supabaseClient) return; // Supabase 활성화 상태에서는 구글 시트 폴링 절대 금지
   if (!googleScriptUrl) return;
 
   // 로컬 수정 내용이 전송 중이거나, 저장이 대기 중이거나, 구글 시트에 막 동기화된 지 8초 이내인 경우 덮어쓰기 방지
@@ -827,6 +879,27 @@ async function syncRemoteDataIfIdle() {
 }
 
 function startRemoteSyncPolling() {
+  if (supabaseClient) {
+    // Supabase 환경: Realtime 웹소켓이 주 동기화 담당.
+    // 30초마다 또는 탭 복귀 시 백그라운드 무결성 확인만 보조로 수행.
+    setInterval(syncSupabaseIfIdle, 30000);
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        syncSupabaseIfIdle();
+      }
+    });
+    window.addEventListener('pageshow', () => {
+      syncSupabaseIfIdle();
+    });
+    window.addEventListener('focus', () => {
+      syncSupabaseIfIdle();
+    });
+    return;
+  }
+
+  // 레거시 구글 시트 환경
+  if (!googleScriptUrl) return;
   setInterval(syncRemoteDataIfIdle, 10000);
 
   // 모바일 기기 화면 켜짐 / 백그라운드 복귀 / 탭 전환 시 즉시 서버 최신 데이터 동기화
@@ -2160,6 +2233,7 @@ function openKeywordForm(task) {
     task.keywordGap = gap === '' ? null : Number(gap);
     if (!task.createdAt) task.createdAt = Date.now();
     saveData();
+    if (supabaseClient) syncSupabaseTask(task);
     closeModal();
     render();
   });
@@ -2172,6 +2246,7 @@ function openKeywordForm(task) {
       task.keywordDocs = null;
       task.keywordGap = null;
       saveData();
+      if (supabaseClient) syncSupabaseTask(task);
       closeModal();
       render();
     });
@@ -3171,6 +3246,7 @@ function onAppClick(e) {
       if (!confirm(`"${h.name}" 병원과 관련된 모든 작업 기록을 삭제할까요? 되돌릴 수 없습니다.`)) return;
       deleteHospitalCascade(id);
       saveData();
+      if (supabaseClient) syncSupabaseHospitalDelete(id);
       if (state.hospitalId === id) { state.view = 'list'; state.hospitalId = null; }
       render();
       break;
@@ -3220,6 +3296,7 @@ function onAppClick(e) {
       if (h) {
         h.autoAssignPaused = !h.autoAssignPaused;
         saveData();
+        if (supabaseClient) syncSupabaseHospital(h);
         render();
       }
       break;
@@ -3726,7 +3803,7 @@ function buildDataFromTabularSheets(ss) {
   return { hospitals, tasks, quotaOverrides: {}, tagPool: [] };
 }`;
 
-const CURRENT_CACHE_VERSION = 'v20261012_02';
+const CURRENT_CACHE_VERSION = 'v20261013_01';
 const CACHE_VERSION_KEY = 'medigo_naver_tracker_cache_version';
 
 (async function bootstrap() {
