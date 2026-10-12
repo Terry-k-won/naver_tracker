@@ -2066,6 +2066,25 @@ input.url-input {
   background: color-mix(in srgb, var(--series-1) 16%, transparent) !important;
 }
 
+.db-sync-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.db-sync-btn.is-connected {
+  color: #12A35C !important;
+  border-color: rgba(18, 163, 92, 0.4) !important;
+  background: rgba(18, 163, 92, 0.08) !important;
+  font-weight: 700 !important;
+}
+
+.db-sync-btn.is-connected:hover {
+  background: rgba(18, 163, 92, 0.16) !important;
+}
+
 .google-guide-box {
   background: var(--surface-page);
   border: 1px solid var(--border);
