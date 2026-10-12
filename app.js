@@ -5,7 +5,7 @@ const THEME_KEY = 'medigo_naver_tracker_theme';
 const TASK_ORDER_KEY = 'medigo_naver_tracker_task_order';
 const LONG_PRESS_MS = 450;
 
-/* ==================== 클라우드 동기화 (Supabase & Google Sheets) ==================== */
+/* ==================== 클라우드 실시간 DB (Supabase) ==================== */
 const DEFAULT_SUPABASE_URL = 'https://pwyzqntqrwlxxtjzeons.supabase.co';
 const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB3eXpxbnRxcndseHh0anplb25zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4MDczMzAsImV4cCI6MjEwNzM4MzMzMH0.-6Op_iT2VARkZ-bA78MdnnYeUqrn-FMPlFabsFGcpDo';
 const SUPABASE_URL_KEY = 'medigo_naver_tracker_supabase_url';
@@ -28,10 +28,6 @@ function initSupabaseClient() {
   }
   return null;
 }
-
-const DEFAULT_GOOGLE_SCRIPT_URL = '';
-const GOOGLE_SCRIPT_URL_KEY = 'medigo_naver_tracker_google_script_url';
-let googleScriptUrl = localStorage.getItem(GOOGLE_SCRIPT_URL_KEY) || '';
 
 // 공유 비밀번호(패스코드) 게이트 - 평문 대신 SHA-256 해시로 비교한다.
 // 비밀번호를 바꾸려면: 새 비밀번호의 SHA-256 해시값으로 아래 상수만 교체하면 된다.
@@ -347,48 +343,7 @@ function loadLocalData() {
   }
 }
 
-// Google Apps Script Web App (Spreadsheet) API 호출
-async function fetchRemoteData() {
-  if (!googleScriptUrl) return null;
-  try {
-    const res = await fetch(googleScriptUrl, { method: 'GET' });
-    if (!res.ok) return null;
-    const json = await res.json();
-    if (json.status === 'ok' && json.data && typeof json.data === 'object' && Array.isArray(json.data.hospitals)) {
-      lastSyncedUpdatedAt = json.updated_at || null;
-      return normalizeLoadedData(json.data);
-    }
-    return null;
-  } catch (e) {
-    console.error('구글 시트 로드 실패:', e);
-    return null;
-  }
-}
 
-let isPushingRemote = false;
-let lastPushTimestamp = 0;
-
-async function pushRemoteState(data) {
-  if (!googleScriptUrl) return;
-  isPushingRemote = true;
-  lastPushTimestamp = Date.now();
-  try {
-    const nowIso = new Date().toISOString();
-    const res = await fetch(googleScriptUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(data)
-    });
-    if (res.ok) {
-      lastSyncedUpdatedAt = nowIso;
-      lastPushTimestamp = Date.now();
-    }
-  } catch (e) {
-    console.error('구글 시트 저장 실패:', e);
-  } finally {
-    isPushingRemote = false;
-  }
-}
 
 /* ==================== Supabase 실시간 DB 엔진 ==================== */
 
@@ -765,50 +720,35 @@ async function loadInitialData() {
     }
   }
 
-  const remote = googleScriptUrl ? await fetchRemoteData() : null;
+  // 로컬 브라우저 캐시 확인
   const local = loadLocalData();
-
-  const isRemoteValid = remote && Array.isArray(remote.hospitals) && remote.hospitals.length >= 7;
-  const isLocalValid = local && Array.isArray(local.hospitals) && local.hospitals.length >= 7;
-
-  if (!isRemoteValid && !isLocalValid) {
-    let backupData = null;
-    try {
-      let resp = await fetch('live_backup_latest.json');
-      if (!resp.ok) resp = await fetch('merged_backup.json');
-      if (!resp.ok) resp = await fetch('supabase_backup.json');
-      if (resp.ok) {
-        const rawBackup = await resp.json();
-        const firstRow = Array.isArray(rawBackup) ? rawBackup[0] : rawBackup;
-        const targetData = (firstRow && firstRow.data) ? firstRow.data : firstRow;
-        if (targetData && Array.isArray(targetData.hospitals)) backupData = normalizeLoadedData(targetData);
-      }
-    } catch (err) { /* ignore */ }
-
-    const base = backupData || { hospitals: INITIAL_HOSPITALS, quotaOverrides: {}, tasks: INITIAL_TASKS, tagPool: [] };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(base));
-    return base;
+  if (local && Array.isArray(local.hospitals) && local.hospitals.length >= 7) {
+    return local;
   }
 
-  if (isRemoteValid) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
-    return remote;
-  }
+  // 초기 백업 JSON 파일 로드
+  let backupData = null;
+  try {
+    let resp = await fetch('live_backup_latest.json');
+    if (!resp.ok) resp = await fetch('merged_backup.json');
+    if (!resp.ok) resp = await fetch('supabase_backup.json');
+    if (resp.ok) {
+      const rawBackup = await resp.json();
+      const firstRow = Array.isArray(rawBackup) ? rawBackup[0] : rawBackup;
+      const targetData = (firstRow && firstRow.data) ? firstRow.data : firstRow;
+      if (targetData && Array.isArray(targetData.hospitals)) backupData = normalizeLoadedData(targetData);
+    }
+  } catch (err) { /* ignore */ }
 
-  return local || remote;
+  const base = backupData || { hospitals: INITIAL_HOSPITALS, quotaOverrides: {}, tasks: INITIAL_TASKS, tagPool: [] };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(base));
+  return base;
 }
 
 let lastSyncedUpdatedAt = null;
-let saveDebounceTimer = null;
 
 function saveData() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-  if (supabaseClient) {
-    // Supabase 환경에서는 각 액션에서 원자적 행 단위 동기화가 이뤄지므로 전체 시트 덮어쓰기를 하지 않습니다.
-    return;
-  }
-  clearTimeout(saveDebounceTimer);
-  saveDebounceTimer = setTimeout(() => pushRemoteState(db), 600);
 }
 
 // ─── Supabase 백그라운드 동기화 (탭 복귀 및 30초 주기 보조 점검) ───────────
@@ -846,73 +786,23 @@ async function syncSupabaseIfIdle() {
   }
 }
 
-// ─── 구글 시트 백그라운드 동기화 (Supabase 미연결 레거시 환경 전용) ──────────
-async function syncRemoteDataIfIdle() {
-  if (supabaseClient) return; // Supabase 활성화 상태에서는 구글 시트 폴링 절대 금지
-  if (!googleScriptUrl) return;
-
-  // 로컬 수정 내용이 전송 중이거나, 저장이 대기 중이거나, 구글 시트에 막 동기화된 지 8초 이내인 경우 덮어쓰기 방지
-  if (isPushingRemote || saveDebounceTimer || (Date.now() - lastPushTimestamp < 8000)) {
-    return;
-  }
-
-  // 사용자가 입력 필드(input, textarea)에 포커스하고 타이핑 중인 경우 방해하지 않음
-  const activeEl = document.activeElement;
-  if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
-    return;
-  }
-
-  const remote = await fetchRemoteData();
-  if (!remote) return;
-
-  if (isPushingRemote || saveDebounceTimer || (Date.now() - lastPushTimestamp < 8000)) {
-    return;
-  }
-
-  const localStr = JSON.stringify(db);
-  const remoteStr = JSON.stringify(remote);
-  if (localStr !== remoteStr) {
-    db = remote;
-    localStorage.setItem(STORAGE_KEY, remoteStr);
-    render();
-  }
-}
-
 function startRemoteSyncPolling() {
-  if (supabaseClient) {
-    // Supabase 환경: Realtime 웹소켓이 주 동기화 담당.
-    // 30초마다 또는 탭 복귀 시 백그라운드 무결성 확인만 보조로 수행.
-    setInterval(syncSupabaseIfIdle, 30000);
+  if (!supabaseClient) return;
 
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        syncSupabaseIfIdle();
-      }
-    });
-    window.addEventListener('pageshow', () => {
-      syncSupabaseIfIdle();
-    });
-    window.addEventListener('focus', () => {
-      syncSupabaseIfIdle();
-    });
-    return;
-  }
+  // Supabase 환경: Realtime 웹소켓이 주 동기화 담당.
+  // 30초마다 또는 탭 복귀 시 백그라운드 무결성 확인만 보조로 수행.
+  setInterval(syncSupabaseIfIdle, 30000);
 
-  // 레거시 구글 시트 환경
-  if (!googleScriptUrl) return;
-  setInterval(syncRemoteDataIfIdle, 10000);
-
-  // 모바일 기기 화면 켜짐 / 백그라운드 복귀 / 탭 전환 시 즉시 서버 최신 데이터 동기화
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      syncRemoteDataIfIdle();
+      syncSupabaseIfIdle();
     }
   });
   window.addEventListener('pageshow', () => {
-    syncRemoteDataIfIdle();
+    syncSupabaseIfIdle();
   });
   window.addEventListener('focus', () => {
-    syncRemoteDataIfIdle();
+    syncSupabaseIfIdle();
   });
 }
 
@@ -1046,14 +936,6 @@ async function autoAssignMondays(hospital, year, month) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
       }
     } catch (e) { /* ignore */ }
-  } else if (googleScriptUrl) {
-    try {
-      const latest = await fetchRemoteData();
-      if (latest && Array.isArray(latest.hospitals) && latest.hospitals.length > 0) {
-        db = latest;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-      }
-    } catch (e) { /* ignore */ }
   }
   const currentHospital = getHospital(hospital.id) || hospital;
   const { added, moved, paused } = assignQuotaEvenlyForMonth(currentHospital, year, month);
@@ -1079,14 +961,6 @@ async function autoAssignAllHospitalsMondays(year, month) {
   if (supabaseClient) {
     try {
       const latest = await fetchSupabaseData();
-      if (latest && Array.isArray(latest.hospitals) && latest.hospitals.length > 0) {
-        db = latest;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-      }
-    } catch (e) { /* ignore */ }
-  } else if (googleScriptUrl) {
-    try {
-      const latest = await fetchRemoteData();
       if (latest && Array.isArray(latest.hospitals) && latest.hospitals.length > 0) {
         db = latest;
         localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
@@ -3450,31 +3324,25 @@ document.addEventListener('keydown', (e) => {
 
 function openCloudDbConfigModal() {
   const isSupabaseActive = !!supabaseClient;
-  const isGoogleActive = !isSupabaseActive && !!googleScriptUrl;
 
   openModal(`
-    <div class="google-config-card" style="max-width: 580px;">
+    <div class="google-config-card" style="max-width: 540px;">
       <div class="google-config-header">
-        <h3 style="margin-bottom:4px; font-size:17px; font-weight:700;">☁️ 클라우드 DB 연동 설정</h3>
-        <p class="helper-text" style="font-size:12.5px; color:var(--text-muted); margin:0;">안정적인 실시간 다중 사용자 협업을 위한 클라우드 DB를 연동합니다.</p>
+        <h3 style="margin-bottom:4px; font-size:17px; font-weight:700;">⚡ Supabase 실시간 클라우드 DB</h3>
+        <p class="helper-text" style="font-size:12.5px; color:var(--text-muted); margin:0;">
+          구글 스프레드시트를 완전히 배제하고 초고속 PostgreSQL 클라우드 DB로 단독 운영됩니다.
+        </p>
       </div>
 
       <div style="margin: 14px 0 16px; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; display:flex; align-items:center; gap:8px;
-        ${isSupabaseActive ? 'background:rgba(18,163,92,0.12); color:#0B6B3D; border:1px solid rgba(18,163,92,0.3);' : 
-          (isGoogleActive ? 'background:rgba(43,114,196,0.12); color:#1A539B; border:1px solid rgba(43,114,196,0.3);' : 'background:#F1F3F5; color:#495057; border:1px solid #CED4DA;')}">
-        <span>현재 가동 모드:</span>
-        ${isSupabaseActive ? '🟢 Supabase 실시간 클라우드 DB 가동 중 (0.1초 동기화)' : 
-          (isGoogleActive ? '📄 구글 스프레드시트 모드 가동 중' : '⚪ 로컬 브라우저 저장 모드')}
+        ${isSupabaseActive ? 'background:rgba(18,163,92,0.12); color:#0B6B3D; border:1px solid rgba(18,163,92,0.3);' : 'background:#F1F3F5; color:#495057; border:1px solid #CED4DA;'}">
+        <span>현재 가동 상태:</span>
+        ${isSupabaseActive ? '🟢 Supabase 실시간 DB 가동 중 (0.1초 동기화)' : '⚪ 미연결 (로컬 브라우저 저장 모드)'}
       </div>
 
-      <!-- Tab 1: Supabase (초고속 실시간 DB) -->
       <div style="background:var(--surface-card); border:1.5px solid var(--border); border-radius:10px; padding:16px; margin-bottom:16px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-          <h4 style="font-size:14px; font-weight:700; color:var(--text); margin:0;">⚡ Supabase (초고속 실시간 PostgreSQL - 강력 권장)</h4>
-          <span style="font-size:11px; background:#E8F5E9; color:#2E7D32; font-weight:700; padding:2px 8px; border-radius:12px;">100% 무료</span>
-        </div>
         <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px; line-height:1.5;">
-          행(Row) 단위로 저장되어 <strong>동시 작업 시 덮어쓰기나 롤백이 100% 차단</strong>되며, 모바일과 PC가 <strong>0.1초 만에 실시간 웹소켓으로 동기화</strong>됩니다.
+          기본 접속 정보가 코드에 영구 내장되어 있어 별도 입력 없이 팀원 3명이 바로 공유됩니다.
         </p>
 
         <form id="supabaseConfigForm">
@@ -3488,26 +3356,11 @@ function openCloudDbConfigModal() {
           </label>
           
           <div style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
-            <button type="button" class="primary-btn" id="migrateToSupabaseBtn" style="background:#12A35C; font-size:12.5px;">🚀 현재 데이터 1클릭 복사/이전</button>
-            <button type="submit" class="primary-btn" style="font-size:12.5px;">Supabase 설정 저장</button>
+            <button type="button" class="primary-btn" id="migrateToSupabaseBtn" style="background:#12A35C; font-size:12.5px;">🚀 현재 데이터 Supabase로 재동기화/백업</button>
+            <button type="submit" class="primary-btn" style="font-size:12.5px;">설정 저장</button>
           </div>
         </form>
       </div>
-
-      <!-- Tab 2: Google Sheets (보조/백업) -->
-      <details style="background:var(--surface-page); border:1px solid var(--border); border-radius:10px; padding:12px 16px; margin-bottom:16px;">
-        <summary style="font-size:13px; font-weight:600; cursor:pointer; color:var(--text-muted);">📄 구글 스프레드시트 연동 (보조/백업용)</summary>
-        <form id="googleConfigForm" style="margin-top:12px;">
-          <label style="display:block; margin-bottom:10px;">
-            <span style="display:block; font-size:12px; font-weight:600; margin-bottom:4px;">구글 Apps Script 웹 앱 URL</span>
-            <input type="url" id="googleScriptUrlInput" class="cell-input" placeholder="https://script.google.com/macros/s/.../exec" value="${esc(googleScriptUrl)}" style="border:1px solid var(--border); padding:8px 10px; width:100%; font-size:12.5px;">
-          </label>
-          <div style="display:flex; gap:8px; justify-content:flex-end;">
-            <button type="button" class="ghost-btn" id="copyAppsScriptCodeBtn" style="font-size:12px;">📋 Apps Script 코드 복사</button>
-            <button type="submit" class="primary-btn" style="font-size:12px;">구글 시트 저장</button>
-          </div>
-        </form>
-      </details>
 
       <div class="form-actions" style="display:flex; justify-content:flex-end;">
         <button type="button" class="ghost-btn" data-action="close-modal">닫기</button>
@@ -3538,7 +3391,7 @@ function openCloudDbConfigModal() {
             render();
             alert('🎉 Supabase 클라우드 DB 연결 성공! 실시간 0.1초 동기화가 활성화되었습니다.');
           } else {
-            alert('Supabase에 연결되었습니다! 테이블이 비어있다면 [현재 데이터 1클릭 복사/이전] 버튼을 눌러 데이터를 넣어주세요.');
+            alert('Supabase에 연결되었습니다!');
           }
         }
       } else {
@@ -3571,12 +3424,12 @@ function openCloudDbConfigModal() {
         return;
       }
 
-      if (!confirm(`현재 트래커 데이터 (병원 ${db.hospitals.length}곳, 작업 ${db.tasks.length}건)를 Supabase로 복사하시겠습니까?\n\n(※ 중요: Supabase SQL Editor에서 supabase_schema.sql 스크립트가 먼저 실행되어 있어야 합니다)`)) {
+      if (!confirm(`현재 트래커 데이터 (병원 ${db.hospitals.length}곳, 작업 ${db.tasks.length}건)를 Supabase로 업로드하시겠습니까?`)) {
         return;
       }
 
       migrateBtn.disabled = true;
-      migrateBtn.textContent = '⏳ 데이터 이전 중...';
+      migrateBtn.textContent = '⏳ 데이터 업로드 중...';
 
       try {
         // 1. Hospitals
@@ -3640,170 +3493,21 @@ function openCloudDbConfigModal() {
         if (pRows.length) await supabaseClient.from('tag_pool').upsert(pRows);
 
         setupSupabaseRealtime();
-        alert('🎉 성공! 모든 데이터가 Supabase로 완벽하게 이전되었습니다.\n이제부터 초고속 실시간 DB로 동작합니다!');
+        alert('🎉 성공! 모든 데이터가 Supabase로 완벽하게 동기화되었습니다.');
         closeModal();
         render();
       } catch (err) {
-        console.error('Supabase 이전 오류:', err);
-        alert('❌ 데이터 이전 중 오류가 발생했습니다: ' + err.message + '\n\nSupabase SQL Editor에서 supabase_schema.sql을 먼저 실행했는지 확인해주세요.');
+        console.error('Supabase 업로드 오류:', err);
+        alert('❌ 데이터 업로드 중 오류가 발생했습니다: ' + err.message);
       } finally {
         migrateBtn.disabled = false;
-        migrateBtn.textContent = '🚀 현재 데이터 1클릭 복사/이전';
+        migrateBtn.textContent = '🚀 현재 데이터 Supabase로 재동기화/백업';
       }
     });
   }
-
-  // Google Sheets 설정 저장
-  const googleForm = document.getElementById('googleConfigForm');
-  if (googleForm) {
-    googleForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const newUrl = document.getElementById('googleScriptUrlInput').value.trim();
-      googleScriptUrl = newUrl;
-      localStorage.setItem(GOOGLE_SCRIPT_URL_KEY, newUrl);
-      closeModal();
-      if (newUrl) {
-        pushRemoteState(db);
-        alert('구글 시트 연동 URL이 저장되었습니다.');
-      } else {
-        alert('구글 시트 연동 URL이 해제되었습니다.');
-      }
-      render();
-    });
-  }
-
-  const copyBtn = document.getElementById('copyAppsScriptCodeBtn');
-  if (copyBtn) {
-    copyBtn.addEventListener('click', () => {
-      copyToClipboard(googleAppsScriptSourceCode);
-      alert('Apps Script 코드가 복사되었습니다.');
-    });
-  }
 }
 
-function openGoogleSheetConfigModal() {
-  openCloudDbConfigModal();
-}
-
-const googleAppsScriptSourceCode = `/** @OnlyCurrentDoc */
-
-const SHEET_HOSPITALS = 'Hospitals';
-const SHEET_TASKS = 'Tasks';
-const SHEET_QUOTAS = 'QuotaOverrides';
-const SHEET_TAGS = 'TagPool';
-
-function formatDateVal(val) {
-  if (!val) return '';
-  if (val instanceof Date) {
-    const y = val.getFullYear();
-    const m = String(val.getMonth() + 1).padStart(2, '0');
-    const d = String(val.getDate()).padStart(2, '0');
-    return \`\${y}-\${m}-\${d}\`;
-  }
-  const str = String(val).trim();
-  if (/^\\d{4}-\\d{2}-\\d{2}/.test(str)) return str.substring(0, 10);
-  const parsedDate = new Date(str);
-  if (!isNaN(parsedDate.getTime())) {
-    const y = parsedDate.getFullYear();
-    const m = String(parsedDate.getMonth() + 1).padStart(2, '0');
-    const d = String(parsedDate.getDate()).padStart(2, '0');
-    return \`\${y}-\${m}-\${d}\`;
-  }
-  return str;
-}
-
-function doGet(e) {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const data = buildDataFromTabularSheets(ss);
-    return ContentService.createTextOutput(JSON.stringify({ status: 'ok', data: data, updated_at: new Date().toISOString() }))
-      .setMimeType(ContentService.MimeType.JSON);
-  } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-}
-
-function doPost(e) {
-  try {
-    const contents = e.postData.contents;
-    if (!contents) throw new Error('empty payload');
-    const parsed = JSON.parse(contents);
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    updateTabularSheets(ss, parsed);
-    return ContentService.createTextOutput(JSON.stringify({ status: 'ok', updated_at: new Date().toISOString() }))
-      .setMimeType(ContentService.MimeType.JSON);
-  } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-}
-
-function updateTabularSheets(ss, db) {
-  if (!db || typeof db !== 'object') return;
-  const hospitals = Array.isArray(db.hospitals) ? db.hospitals : [];
-  let hSheet = ss.getSheetByName(SHEET_HOSPITALS);
-  if (!hSheet) hSheet = ss.insertSheet(SHEET_HOSPITALS);
-  hSheet.clearContents();
-  const hHeaders = ['ID', '병원명', '브랜드블로그 목표', '기자단 목표', '영수증리뷰 목표', '주기 시작일', '네이버 ID', '네이버 비밀번호', '블로그 URL', '지도 URL', '일시정지 여부'];
-  const hRows = [hHeaders];
-  hospitals.forEach(h => {
-    const q = h.defaultQuota || {};
-    hRows.push([h.id||'', h.name||'', q.brandBlog||0, q.press||0, q.receipt||0, h.cycleStartDay||1, h.naverId||'', h.naverPassword||'', h.naverBlogUrl||'', h.naverMapUrl||'', h.autoAssignPaused ? '일시정지' : '정상']);
-  });
-  hSheet.getRange(1, 1, hRows.length, hHeaders.length).setValues(hRows);
-
-  const tasks = Array.isArray(db.tasks) ? db.tasks : [];
-  let tSheet = ss.getSheetByName(SHEET_TASKS);
-  if (!tSheet) tSheet = ss.insertSheet(SHEET_TASKS);
-  tSheet.clearContents();
-  const tHeaders = ['ID', '병원ID', '발행 종류', '키워드', '글감(텍스트)', '마감일', '진행상황', '발행일', '검색량', '발행량', '성과'];
-  const tRows = [tHeaders];
-  tasks.forEach(t => {
-    const typeLabel = t.type === 'brandBlog' ? '브랜드 블로그' : (t.type === 'press' ? '기자단' : (t.type === 'receipt' ? '영수증 리뷰' : t.type));
-    tRows.push([t.id||'', t.hospitalId||'', typeLabel, t.keyword||'', t.topicText||'', formatDateVal(t.deadline), t.status||'', formatDateVal(t.publishedDate), t.keywordVolume ?? '', t.keywordDocs ?? '', t.performance||'']);
-  });
-  hSheet.getRange(1, 1, tRows.length, tHeaders.length).setValues(tRows);
-}
-
-function buildDataFromTabularSheets(ss) {
-  const hospitals = [];
-  const hSheet = ss.getSheetByName(SHEET_HOSPITALS);
-  if (hSheet && hSheet.getLastRow() > 1) {
-    const hVals = hSheet.getRange(2, 1, hSheet.getLastRow() - 1, 11).getValues();
-    hVals.forEach(r => {
-      if (r[0]) {
-        hospitals.push({
-          id: String(r[0]), name: String(r[1]),
-          defaultQuota: { brandBlog: Number(r[2])||0, press: Number(r[3])||0, receipt: Number(r[4])||0 },
-          cycleStartDay: Number(r[5])||1, naverId: String(r[6]||''), naverPassword: String(r[7]||''),
-          naverBlogUrl: String(r[8]||''), naverMapUrl: String(r[9]||''), autoAssignPaused: String(r[10]) === '일시정지'
-        });
-      }
-    });
-  }
-  const tasks = [];
-  const tSheet = ss.getSheetByName(SHEET_TASKS);
-  if (tSheet && tSheet.getLastRow() > 1) {
-    const tVals = tSheet.getRange(2, 1, tSheet.getLastRow() - 1, 11).getValues();
-    tVals.forEach(r => {
-      if (r[0]) {
-        let rawType = String(r[2]||'');
-        let type = 'brandBlog';
-        if (rawType.includes('기자단') || rawType === 'press') type = 'press';
-        else if (rawType.includes('영수증') || rawType === 'receipt') type = 'receipt';
-        tasks.push({
-          id: String(r[0]), hospitalId: String(r[1]||''), type, keyword: String(r[3]||''), topicText: String(r[4]||''),
-          deadline: formatDateVal(r[5]), status: String(r[6]||'시작 전'), publishedDate: r[7] ? formatDateVal(r[7]) : null,
-          keywordVolume: r[8] !== '' ? Number(r[8]) : null, keywordDocs: r[9] !== '' ? Number(r[9]) : null, performance: String(r[10]||'')
-        });
-      }
-    });
-  }
-  return { hospitals, tasks, quotaOverrides: {}, tagPool: [] };
-}`;
-
-const CURRENT_CACHE_VERSION = 'v20261013_01';
+const CURRENT_CACHE_VERSION = 'v20261013_02';
 const CACHE_VERSION_KEY = 'medigo_naver_tracker_cache_version';
 
 (async function bootstrap() {
