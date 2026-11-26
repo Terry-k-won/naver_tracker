@@ -1171,6 +1171,7 @@ function renderHeader() {
       <div class="app-title" data-action="go-list">네이버 마케팅 작업 트래커</div>
     </div>
     <div class="header-actions">
+      <a href="/video/" class="primary-btn video-nav-btn" data-action="go-video-studio" title="슬라이드쇼 비디오 제작 및 워터마크 이미지 합성 스튜디오 열기">🎬 영상 제작</a>
       ${isDetail ? `<button class="primary-btn home-nav-btn" data-action="go-list" title="홈(목록)으로 돌아가기">🏠 홈으로</button>` : ''}
       ${isDetail ? `<button class="ghost-btn report-export-header-btn" data-action="export-pdf-report" title="Dr.NAEO 성과 보고서 PDF 출력/다운로드">📄 PDF 보고서</button>` : ''}
       <button class="ghost-btn db-sync-btn ${supabaseClient ? 'is-connected' : ''}" data-action="open-cloud-db-config" title="클라우드 DB (Supabase / 구글 시트) 연동 설정">
@@ -3060,6 +3061,9 @@ function onAppClick(e) {
   const id = el.dataset.id;
 
   switch (action) {
+    case 'go-video-studio':
+      window.location.href = '/video/';
+      break;
     case 'go-list':
       state.view = 'list';
       state.hospitalId = null;
